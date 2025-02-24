@@ -3,6 +3,7 @@ import os
 import atexit
 import random
 import uuid
+import psycopg2
 from collections import defaultdict
 
 import redis
@@ -10,7 +11,6 @@ import requests
 
 from msgspec import msgpack, Struct
 from flask import Flask, jsonify, abort, Response
-
 
 DB_ERROR_STR = "DB error"
 REQ_ERROR_STR = "Requests error"
@@ -24,6 +24,11 @@ db: redis.Redis = redis.Redis(host=os.environ['REDIS_HOST'],
                               password=os.environ['REDIS_PASSWORD'],
                               db=int(os.environ['REDIS_DB']))
 
+postgres_db = psycopg2.connect(
+        host="dds-project-order-postgres-1",
+        database="postgres",
+        user="postgres",
+        password="postgres")
 
 def close_db_connection():
     db.close()

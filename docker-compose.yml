@@ -11,6 +11,8 @@ services:
       - order-service
       - stock-service
       - payment-service
+    networks:
+      - app_network
 
   order-service:
     build: ./order
@@ -22,10 +24,14 @@ services:
       - env/order_redis.env
     depends_on:
       - order-db
+    networks:
+      - app_network
 
   order-db:
     image: redis:7.2-bookworm
     command: redis-server --requirepass redis --maxmemory 512mb
+    networks:
+      - app_network
 
   stock-service:
     build: ./stock
@@ -35,10 +41,14 @@ services:
       - env/stock_redis.env
     depends_on:
       - stock-db
+    networks:
+      - app_network
 
   stock-db:
     image: redis:7.2-bookworm
     command: redis-server --requirepass redis --maxmemory 512mb
+    networks:
+      - app_network
 
   payment-service:
     build: ./payment
@@ -48,7 +58,64 @@ services:
       - env/payment_redis.env
     depends_on:
       - payment-db
+    networks:
+      - app_network
 
   payment-db:
     image: redis:7.2-bookworm
     command: redis-server --requirepass redis --maxmemory 512mb
+    networks:
+      - app_network
+
+  order-postgres:
+    image: postgres:15.2
+    user: postgres
+    environment:
+    - "POSTGRES_HOST_AUTH_METHOD=trust"
+    - "POSTGRES_USER=postgres"
+    - "POSTGRES_PASSWORD=postgres"
+    ports:
+      - "5431:5432"
+    networks:
+      - app_network
+
+  stock-postgres:
+    image: postgres:15.2
+    user: postgres
+    environment:
+    - "POSTGRES_HOST_AUTH_METHOD=trust"
+    - "POSTGRES_USER=postgres"
+    - "POSTGRES_PASSWORD=postgres"
+    ports:
+      - "5432:5432"
+    networks:
+      - app_network
+
+  payment-postgres:
+    image: postgres:15.2
+    user: postgres
+    environment:
+    - "POSTGRES_HOST_AUTH_METHOD=trust"
+    - "POSTGRES_USER=postgres"
+    - "POSTGRES_PASSWORD=postgres"
+    ports:
+      - "5433:5432"
+    networks:
+      - app_network
+
+  # pgAdmin (access with localhost:5050 in browser)
+  pgadmin:
+    container_name: pgadmin4_container
+    image: dpage/pgadmin4
+    restart: always
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: root
+    ports:
+      - "5050:80"
+    networks:
+      - app_network
+
+networks:
+  app_network:
+    driver: bridge
