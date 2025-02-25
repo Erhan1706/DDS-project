@@ -20,10 +20,12 @@ services:
     environment:
       - GATEWAY_URL=http://gateway:80
     command: gunicorn -b 0.0.0.0:5000 -w 2 --timeout 30 --log-level=info app:app
+    ports:
+      - "5000:5000"
     env_file:
       - env/order_redis.env
     depends_on:
-      - order-db
+      - order-postgres
     networks:
       - app_network
 
@@ -71,6 +73,7 @@ services:
     image: postgres:15.2
     user: postgres
     environment:
+    - "POSTGRES_DB=order-db"
     - "POSTGRES_HOST_AUTH_METHOD=trust"
     - "POSTGRES_USER=postgres"
     - "POSTGRES_PASSWORD=postgres"
