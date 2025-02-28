@@ -3,7 +3,6 @@ import os
 import atexit
 import random
 import uuid
-import psycopg2
 from collections import defaultdict
 
 import redis
@@ -26,17 +25,10 @@ GATEWAY_URL = os.environ['GATEWAY_URL']
 #                              password=os.environ['REDIS_PASSWORD'],
 #                              db=int(os.environ['REDIS_DB']))
 
-#postgres_db = psycopg2.connect(
-#        host="dds-project-order-postgres-1",
-#        database="postgres",
-#        user="postgres",
-#        password="postgres")
 
 
 class Base(DeclarativeBase):
   pass
-
-db: SQLAlchemy = SQLAlchemy(model_class=Base)
 
 app = Flask("order-service")
 
@@ -46,10 +38,11 @@ app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
     "isolation_level": "SERIALIZABLE" # Strongest isolation level for postgres
 }
 
-db.init_app(app)
+db: SQLAlchemy = SQLAlchemy(app)
 
 def close_db_connection():
-    db.session.close()
+    with app.app_context():
+        db.session.close()
 
 class Order(db.Model):
     __tablename__ = "orders"
@@ -68,6 +61,9 @@ class Order(db.Model):
             "user_id": self.user_id,
             "total_cost": self.total_cost
         }
+
+with app.app_context():
+    db.create_all() 
 
 atexit.register(close_db_connection)
 
