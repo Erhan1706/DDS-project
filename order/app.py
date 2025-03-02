@@ -14,6 +14,10 @@ from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.sql import text
+from flask import request
+from kafka import KafkaProducer, KafkaConsumer
+import json
+import threading
 
 DB_ERROR_STR = "DB error"
 REQ_ERROR_STR = "Requests error"
@@ -67,6 +71,24 @@ with app.app_context():
 
 atexit.register(close_db_connection)
 
+producer = KafkaProducer(
+    bootstrap_servers='kafka:9092',
+    value_serializer=lambda v: json.dumps(v).encode('utf-8')
+)
+
+def start_consumer():
+    consumer = KafkaConsumer(
+        'test-topic',
+        bootstrap_servers='kafka:9092',
+        auto_offset_reset='earliest',
+        value_deserializer=lambda x: json.loads(x.decode('utf-8'))
+    )
+    for message in consumer:
+        print(f"Consumed message: {message.value}")
+
+# Start consumer in a separate thread
+threading.Thread(target=start_consumer, daemon=True).start() 
+
 class OrderValue(Struct):
     paid: bool
     items: list[tuple[str, int]]
@@ -80,6 +102,15 @@ def get_order_from_db(order_id: str) -> OrderValue | None:
         # if order does not exist in the database; abort
         abort(400, f"Order: {order_id} not found!")
     return order
+
+""" Temporary test endpoint to send messages to Kafka """
+@app.post('/send')
+def send_message():
+    data = request.json
+    message = data.get('message')
+    producer.send('test-topic', value=message)
+    producer.flush()
+    return jsonify({'status': 'Message sent to Kafka'}), 200
 
 @app.post('/create/<user_id>')
 def create_order(user_id: str):

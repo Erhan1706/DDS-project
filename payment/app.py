@@ -7,6 +7,10 @@ import redis
 
 from msgspec import msgpack, Struct
 from flask import Flask, jsonify, abort, Response
+from flask import request
+from kafka import KafkaProducer, KafkaConsumer
+import json
+import threading
 
 DB_ERROR_STR = "DB error"
 
@@ -26,8 +30,36 @@ def close_db_connection():
 atexit.register(close_db_connection)
 
 
+producer = KafkaProducer(
+    bootstrap_servers='kafka:9092',
+    value_serializer=lambda v: json.dumps(v).encode('utf-8')
+)
+
+def start_consumer():
+    consumer = KafkaConsumer(
+        'test-topic',
+        bootstrap_servers='kafka:9092',
+        auto_offset_reset='earliest',
+        value_deserializer=lambda x: json.loads(x.decode('utf-8'))
+    )
+    for message in consumer:
+        print(f"Consumed message: {message.value}")
+
+# Start consumer in a separate thread
+threading.Thread(target=start_consumer, daemon=True).start() 
+
+
 class UserValue(Struct):
     credit: int
+
+""" Temporary test endpoint to send messages to Kafka """
+@app.post('/send')
+def send_message():
+    data = request.json
+    message = data.get('message')
+    producer.send('test-topic', value=message)
+    producer.flush()
+    return jsonify({'status': 'Message sent to Kafka'}), 200
 
 
 def get_user_from_db(user_id: str) -> UserValue | None:
