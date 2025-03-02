@@ -18,21 +18,20 @@ from flask import request
 from kafka import KafkaProducer, KafkaConsumer
 import json
 import threading
+from sqlalchemy.exc import OperationalError
+
 
 DB_ERROR_STR = "DB error"
 REQ_ERROR_STR = "Requests error"
 
 GATEWAY_URL = os.environ['GATEWAY_URL']
 
+MAX_RETRIES = 3
+
 #db: redis.Redis = redis.Redis(host=os.environ['REDIS_HOST'],
 #                              port=int(os.environ['REDIS_PORT']),
 #                              password=os.environ['REDIS_PASSWORD'],
 #                              db=int(os.environ['REDIS_DB']))
-
-
-
-class Base(DeclarativeBase):
-  pass
 
 app = Flask("order-service")
 
@@ -179,11 +178,19 @@ def add_item(order_id: str, item_id: str, quantity: int):
     item_json: dict = item_reply.json()
     order.items.append((item_id, int(quantity)))
     order.total_cost += int(quantity) * item_json["price"]
-    try:
-        db.session.commit()
-    except Exception:
-        db.session.rollback()
+    retries = 0
+    while retries < MAX_RETRIES:
+        try:
+            db.session.add(order)
+            db.session.commit()
+            break
+        except OperationalError:
+            db.session.rollback()
+            retries += 1
+    else:
+        app.logger.error("Failed to add item")
         return abort(400, DB_ERROR_STR)
+
     return Response(f"Item: {item_id} added to: {order_id} price updated to: {order.total_cost}",
                     status=200)
 
@@ -217,23 +224,23 @@ def checkout(order_id: str):
         rollback_stock(removed_items)
         abort(400, "User out of credit")
     order.paid = True
-    try:
-        db.session.commit()
-    except Exception:
-        db.session.rollback()
+    retries = 0
+    while retries < MAX_RETRIES:
+        try:
+            db.session.add(order)
+            db.session.commit()
+            break
+        except OperationalError:
+            db.session.rollback()
+            retries += 1
+    else:
+        app.logger.error("Failed to checkout")
         return abort(400, DB_ERROR_STR)
     app.logger.debug("Checkout successful")
     return Response("Checkout successful", status=200)
 
-@app.get('/check_isolation')
-def check_isolation():
-    result = db.session.execute(text('SHOW transaction_isolation;')).scalar()
-    return jsonify({'isolation_level': result})
-
 if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()
-        app.run(host="0.0.0.0", port=8000, debug=True)
+    app.run(host="0.0.0.0", port=8000, debug=True)
 else:
     gunicorn_logger = logging.getLogger('gunicorn.error')
     app.logger.handlers = gunicorn_logger.handlers

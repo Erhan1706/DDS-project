@@ -28,6 +28,8 @@ services:
       - kafka
     networks:
       - app_network
+    volumes:
+      - ./order/app.py:/home/flask-app/app.py # reload changes for development
 
   #order-db:
   #  image: redis:7.2-bookworm
@@ -118,6 +120,8 @@ services:
       - "5050:80"
     networks:
       - app_network
+    volumes: 
+      - pgadmin:/var/lib/pgadmin
 
   zookeeper:
     image: confluentinc/cp-zookeeper:7.0.0
@@ -146,3 +150,6 @@ services:
 networks:
   app_network:
     driver: bridge
+
+volumes:
+  pgadmin:
