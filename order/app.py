@@ -5,20 +5,26 @@ import random
 import uuid
 from collections import defaultdict
 
-import redis
+#import redis
 import requests
 
 from msgspec import msgpack, Struct
 from flask import Flask, jsonify, abort, Response
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.dialects.postgresql import UUID, JSONB
-from sqlalchemy.sql import text
 from flask import request
 from kafka import KafkaProducer, KafkaConsumer
 import json
 import threading
 from sqlalchemy.exc import OperationalError
+from orchestrator import Orchestrator, Step
+from threading import Event
+#from asgiref.wsgi import WsgiToAsgi
+
+
+# For debugging purposes
+#import debugpy
+#debugpy.listen(("0.0.0.0", 5678))
 
 
 DB_ERROR_STR = "DB error"
@@ -32,7 +38,6 @@ MAX_RETRIES = 3
 #                              port=int(os.environ['REDIS_PORT']),
 #                              password=os.environ['REDIS_PASSWORD'],
 #                              db=int(os.environ['REDIS_DB']))
-
 app = Flask("order-service")
 
 app.config["SQLALCHEMY_DATABASE_URI"]  = f'postgresql://postgres:postgres@order-postgres:5432/order-db'
@@ -42,6 +47,8 @@ app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
 }
 
 db: SQLAlchemy = SQLAlchemy(app)
+
+#asgi_app = WsgiToAsgi(app) 
 
 def close_db_connection():
     with app.app_context():
@@ -64,6 +71,14 @@ class Order(db.Model):
             "user_id": self.user_id,
             "total_cost": self.total_cost
         }
+    
+class OrderState(db.Model):
+    __tablename__ = "order_states"
+
+    id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    saga_id = db.Column(UUID(as_uuid=True), nullable=False)
+    order_id = db.Column(UUID(as_uuid=True), db.ForeignKey('orders.id'), nullable=False)
+    state = db.Column(db.String(50), nullable=False)
 
 with app.app_context():
     db.create_all() 
@@ -102,6 +117,12 @@ def get_order_from_db(order_id: str) -> OrderValue | None:
         abort(400, f"Order: {order_id} not found!")
     return order
 
+@app.get("/get")
+def test_get():
+    producer.send("stock_details_success", value={"order_id": "1234"})
+    #producer.send("stock_details_failure", value={"order_id": "1234"})
+    return jsonify({"msg": "Hello from order service"})
+
 """ Temporary test endpoint to send messages to Kafka """
 @app.post('/send')
 def send_message():
@@ -120,7 +141,6 @@ def create_order(user_id: str):
     except Exception:
         db.session.rollback()
         return abort(400, DB_ERROR_STR)
-    
     return jsonify({'order_id': str(order.id)})
 
 
@@ -210,19 +230,20 @@ def checkout(order_id: str):
         items_quantities[item_id] += quantity
     # The removed items will contain the items that we already have successfully subtracted stock from
     # for rollback purposes.
-    removed_items: list[tuple[str, int]] = []
-    for item_id, quantity in items_quantities.items():
-        stock_reply = send_post_request(f"{GATEWAY_URL}/stock/subtract/{item_id}/{quantity}")
-        if stock_reply.status_code != 200:
-            # If one item does not have enough stock we need to rollback
-            rollback_stock(removed_items)
-            abort(400, f'Out of stock on item_id: {item_id}')
-        removed_items.append((item_id, quantity))
-    user_reply = send_post_request(f"{GATEWAY_URL}/payment/pay/{order.user_id}/{order.total_cost}")
-    if user_reply.status_code != 200:
-        # If the user does not have enough credit we need to rollback all the item stock subtractions
-        rollback_stock(removed_items)
-        abort(400, "User out of credit")
+    #removed_items: list[tuple[str, int]] = []
+
+    saga_id = str(uuid.uuid4())
+    event = Event()
+    orchestrator.start(order_id, items_quantities, saga_id)
+
+    if not event.wait(timeout=5):  # Block until notified or timeout
+        app.logger.error("Checkout timed out")
+        return Response("Checkout timed out", status=400)
+    
+    order_status = OrderState.query.filter_by(order_id=order_id).first()
+    if order_status.state != "COMPLETED":
+        app.logger.error("Failed to checkout")
+        return abort(400, DB_ERROR_STR)
     order.paid = True
     retries = 0
     while retries < MAX_RETRIES:
@@ -232,14 +253,114 @@ def checkout(order_id: str):
             break
         except OperationalError:
             db.session.rollback()
-            retries += 1
+            retries += 1        
+        return Response("Checkout successful", status=200)
     else:
-        app.logger.error("Failed to checkout")
+        app.logger.error("Failed to commit order to database")
         return abort(400, DB_ERROR_STR)
+    """ user_reply = send_post_request(f"{GATEWAY_URL}/payment/pay/{order.user_id}/{order.total_cost}")
+    if user_reply.status_code != 200:
+        # If the user does not have enough credit we need to rollback all the item stock subtractions
+        rollback_stock(removed_items)
+        abort(400, "User out of credit")"
+    """
+
+def send_stock_rollback(order_id: str, items: dict[str, int], saga_id: str):
+    orderStatus = OrderState.query.filter_by(order_id=order_id).first()
+    if orderStatus is None:
+        return abort(400, f"Order: {order_id} not found!")
+    orderStatus.state = "FAILED" # Maybe delete this instead?
+    try:
+        db.session.add(orderStatus)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        return abort(400, DB_ERROR_STR)
+    producer.send('compensate_stock_details', value=dict(items=items, order_id=order_id, saga_id=saga_id))
+    producer.flush()
+    app.logger.debug("Sent compensating event for {order_id}")
+
+def send_stock_event(order_id: str, items: dict[str, int], saga_id: str):
+    orderStatus: OrderState = OrderState(saga_id=saga_id, order_id=order_id, state="PENDING")
+    try:
+        db.session.add(orderStatus)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        return abort(400, DB_ERROR_STR)
+    producer.send('verify_stock_details', value=dict(items=items, order_id=order_id, saga_id=saga_id))
+    producer.flush()
+    app.logger.info(f"Sent stock event for {saga_id}")
+
+def start_stock_listener():
+    consumer = KafkaConsumer(
+        'stock_details_success',
+        'stock_details_failure',
+        bootstrap_servers='kafka:9092',
+        auto_offset_reset='latest',
+        value_deserializer=lambda x: json.loads(x.decode('utf-8'))
+    )
+    for message in consumer:
+        handle_stock_message(message.value, message.topic)
+
+def handle_stock_message(data: dict, topic: str):
+    saga_id = data.get("saga_id")
+    if not saga_id:
+        app.logger.error("No saga_id in message")
+        return
+    app.logger.info(f"Consumed message: {data}")
+    try: 
+        # Get order state corresponding to the saga_id
+        with app.app_context():
+            orderState: OrderState = OrderState.query.filter_by(saga_id=saga_id).first()
+            if orderState is None:
+                app.logger.error(f"Order state not found for {saga_id}")
+                return
+        orchestrator.process_step(topic, saga_id)
+    except Exception as e:
+        app.logger.error(f"Error in getting order state: {e}")
+        return
+    
+def start_payment_listener():
+    consumer = KafkaConsumer(
+        'payment_details_success',
+        'payment_details_failure',
+        bootstrap_servers='kafka:9092',
+        auto_offset_reset='latest',
+        value_deserializer=lambda x: json.loads(x.decode('utf-8'))
+    )
+    for message in consumer:
+        handle_payment_message(message.value, message.topic)
+
+def handle_payment_message(data: dict, topic: str):
+    saga_id = data.get("saga_id")
+    if not saga_id:
+        app.logger.error("No saga_id in message")
+        return
+    app.logger.info(f"Consumed message: {data}")
+    try: 
+        # Get order state corresponding to the saga_id
+        with app.app_context():
+            orderState: OrderState = OrderState.query.filter_by(saga_id=saga_id).first()
+            if orderState is None:
+                app.logger.error(f"Order state not found for {saga_id}")
+                return
+        orchestrator.process_step(topic, saga_id)
+    except Exception as e:
+        app.logger.error(f"Error in getting order state: {e}")
+        return
+
+stock_step = Step("verify_stock", send_stock_event, send_stock_rollback)
+orchestrator = Orchestrator(producer, steps=[stock_step])
+
+threading.Thread(target=start_stock_listener, daemon=True).start()
+
+def finish_checkout():
     app.logger.debug("Checkout successful")
-    return Response("Checkout successful", status=200)
 
 if __name__ == '__main__':
+    import uvicorn
+    #uvicorn.run(asgi_app, host="0.0.0.0", port=8000, log_level="debug")
     app.run(host="0.0.0.0", port=8000, debug=True)
 else:
     gunicorn_logger = logging.getLogger('gunicorn.error')

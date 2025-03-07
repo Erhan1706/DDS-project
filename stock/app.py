@@ -29,6 +29,11 @@ def close_db_connection():
 
 atexit.register(close_db_connection)
 
+class StockValue(Struct):
+    stock: int
+    price: int
+
+
 producer = KafkaProducer(
     bootstrap_servers='kafka:9092',
     value_serializer=lambda v: json.dumps(v).encode('utf-8')
@@ -36,30 +41,21 @@ producer = KafkaProducer(
 
 def start_consumer():
     consumer = KafkaConsumer(
-        'test-topic',
+        'verify_stock_details',
         bootstrap_servers='kafka:9092',
-        auto_offset_reset='earliest',
+        auto_offset_reset='latest',
         value_deserializer=lambda x: json.loads(x.decode('utf-8'))
     )
     for message in consumer:
+        app.logger.info("Message consumed")
         print(f"Consumed message: {message.value}")
+        producer.send('stock_details_success', value= message.value)
+        #producer.send('stock_details_failure', value={})
+    #producer.send('stock_details_success', value={"item_id": "1234"})
+    #producer.send('stock_details_failure', value={})
 
 # Start consumer in a separate thread
 threading.Thread(target=start_consumer, daemon=True).start() 
-
-
-class StockValue(Struct):
-    stock: int
-    price: int
-
-""" Temporary test endpoint to send messages to Kafka """
-@app.post('/send')
-def send_message():
-    data = request.json
-    message = data.get('message')
-    producer.send('test-topic', value=message)
-    producer.flush()
-    return jsonify({'status': 'Message sent to Kafka'}), 200
 
 
 def get_item_from_db(item_id: str) -> StockValue | None:
