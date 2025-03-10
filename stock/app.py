@@ -39,7 +39,8 @@ producer = KafkaProducer(
     value_serializer=lambda v: json.dumps(v).encode('utf-8')
 )
 
-def start_consumer():
+# Temporary consumers to test saga behaviour
+def start_stock_consumer():
     consumer = KafkaConsumer(
         'verify_stock_details',
         bootstrap_servers='kafka:9092',
@@ -47,16 +48,26 @@ def start_consumer():
         value_deserializer=lambda x: json.loads(x.decode('utf-8'))
     )
     for message in consumer:
-        app.logger.info("Message consumed")
-        print(f"Consumed message: {message.value}")
-        producer.send('stock_details_success', value= message.value)
+        app.logger.info("Stock message consumed")
+        producer.send('stock_details_failure', value=message.value)
         #producer.send('stock_details_failure', value={})
     #producer.send('stock_details_success', value={"item_id": "1234"})
     #producer.send('stock_details_failure', value={})
 
-# Start consumer in a separate thread
-threading.Thread(target=start_consumer, daemon=True).start() 
+def start_payment_consumer():
+    consumer = KafkaConsumer(
+        'verify_payment_details',
+        bootstrap_servers='kafka:9092',
+        auto_offset_reset='latest',
+        value_deserializer=lambda x: json.loads(x.decode('utf-8'))
+    )
+    for message in consumer:
+        app.logger.info("Payment message consumed")
+        producer.send('payment_details_failure', value=message.value)
 
+# Start consumer in a separate thread
+threading.Thread(target=start_stock_consumer, daemon=True).start()
+threading.Thread(target=start_payment_consumer, daemon=True).start()
 
 def get_item_from_db(item_id: str) -> StockValue | None:
     # get serialized data

@@ -7,5 +7,4 @@ until nc -z kafka 9092; do
 done
 echo "Kafka is ready"
 # Change -w 1 to 2 after development
-exec gunicorn -b 0.0.0.0:5000 -w 1 --timeout 300 --log-level=info --reload app:app
-# -k uvicorn.workers.UvicornWorke
+exec gunicorn -b 0.0.0.0:5000 -w 1 --timeout 300 --log-level=info --reload run:app

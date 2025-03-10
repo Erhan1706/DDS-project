@@ -30,7 +30,10 @@ services:
     networks:
       - app_network
     volumes:
-      - ./order/app.py:/home/flask-app/app.py # reload changes for development
+      - ./order/orchestrator.py:/home/flask-app/orchestrator.py # reload changes for development
+      - ./order/routes.py:/home/flask-app/routes.py
+      - ./order/kafka_utils.py:/home/flask-app/kafka_utils.py
+
 
   #order-db:
   #  image: redis:7.2-bookworm
