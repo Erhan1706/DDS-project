@@ -1,32 +1,34 @@
 import logging
-import os
 import atexit
 import uuid
-
-import redis
-
-from msgspec import msgpack, Struct
-from flask import Flask, jsonify, abort, Response
-from flask import request
-from kafka import KafkaProducer, KafkaConsumer
 import json
 import threading
 
+from flask import Flask, jsonify, abort, Response, request
+from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.exc import OperationalError
+from kafka import KafkaProducer, KafkaConsumer
+
 
 DB_ERROR_STR = "DB error"
+MAX_RETRIES = 3
 
 app = Flask("stock-service")
 
-db: redis.Redis = redis.Redis(host=os.environ['REDIS_HOST'],
-                              port=int(os.environ['REDIS_PORT']),
-                              password=os.environ['REDIS_PASSWORD'],
-                              db=int(os.environ['REDIS_DB']))
+app.config["SQLALCHEMY_DATABASE_URI"] = "postgresql://postgres:postgres@stock-postgres:5432/stock-db"
+app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+    "isolation_level": "SERIALIZABLE"  # Strongest isolation level for postgres
+}
 
+db = SQLAlchemy(app)
 
 def close_db_connection():
-    db.close()
+    with app.app_context():
+        db.session.close()
 
-
+db.create_all()
 atexit.register(close_db_connection)
 
 producer = KafkaProducer(
@@ -45,14 +47,16 @@ def start_consumer():
         print(f"Consumed message: {message.value}")
 
 # Start consumer in a separate thread
-threading.Thread(target=start_consumer, daemon=True).start() 
+threading.Thread(target=start_consumer, daemon=True).start()
+
+class Stock(db.Model):
+    __tablename__ = "stock"
+    id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    stock = db.Column(db.Integer, nullable=False, default=0)
+    price = db.Column(db.Integer, nullable=False)
 
 
-class StockValue(Struct):
-    stock: int
-    price: int
 
-""" Temporary test endpoint to send messages to Kafka """
 @app.post('/send')
 def send_message():
     data = request.json
@@ -62,83 +66,84 @@ def send_message():
     return jsonify({'status': 'Message sent to Kafka'}), 200
 
 
-def get_item_from_db(item_id: str) -> StockValue | None:
-    # get serialized data
-    try:
-        entry: bytes = db.get(item_id)
-    except redis.exceptions.RedisError:
-        return abort(400, DB_ERROR_STR)
-    # deserialize data if it exists else return null
-    entry: StockValue | None = msgpack.decode(entry, type=StockValue) if entry else None
-    if entry is None:
-        # if item does not exist in the database; abort
+def get_item_from_db(item_id: str) -> Stock:
+    item = Stock.query.get(item_id)
+    if item is None:
         abort(400, f"Item: {item_id} not found!")
-    return entry
-
-
+    return item
 @app.post('/item/create/<price>')
 def create_item(price: int):
-    key = str(uuid.uuid4())
-    app.logger.debug(f"Item: {key} created")
-    value = msgpack.encode(StockValue(stock=0, price=int(price)))
+    item = Stock(price=int(price), stock=0)
     try:
-        db.set(key, value)
-    except redis.exceptions.RedisError:
+        db.session.add(item)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
         return abort(400, DB_ERROR_STR)
-    return jsonify({'item_id': key})
-
+    return jsonify({'item_id': str(item.id)})
 
 @app.post('/batch_init/<n>/<starting_stock>/<item_price>')
-def batch_init_users(n: int, starting_stock: int, item_price: int):
+def batch_init_stock(n: int, starting_stock: int, item_price: int):
     n = int(n)
     starting_stock = int(starting_stock)
     item_price = int(item_price)
-    kv_pairs: dict[str, bytes] = {f"{i}": msgpack.encode(StockValue(stock=starting_stock, price=item_price))
-                                  for i in range(n)}
+    items = [Stock(stock=starting_stock, price=item_price)
+                                    for i in range(n)]
     try:
-        db.mset(kv_pairs)
-    except redis.exceptions.RedisError:
+        db.session.bulk_save_objects(items)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
         return abort(400, DB_ERROR_STR)
     return jsonify({"msg": "Batch init for stock successful"})
 
-
 @app.get('/find/<item_id>')
 def find_item(item_id: str):
-    item_entry: StockValue = get_item_from_db(item_id)
+    item = get_item_from_db(item_id)
     return jsonify(
         {
-            "stock": item_entry.stock,
-            "price": item_entry.price
+            "stock": item.stock, 
+            "price": item.price
         }
     )
 
-
 @app.post('/add/<item_id>/<amount>')
 def add_stock(item_id: str, amount: int):
-    item_entry: StockValue = get_item_from_db(item_id)
-    # update stock, serialize and update database
-    item_entry.stock += int(amount)
-    try:
-        db.set(item_id, msgpack.encode(item_entry))
-    except redis.exceptions.RedisError:
+    item = get_item_from_db(item_id)
+    item.stock += int(amount)
+    retries = 0
+    while retries < MAX_RETRIES:
+        try:
+            db.session.add(item)
+            db.session.commit()
+            break
+        except OperationalError:
+            db.session.rollback()
+            retries += 1
+    else:
+        app.logger.error("Failed to add stock")
         return abort(400, DB_ERROR_STR)
-    return Response(f"Item: {item_id} stock updated to: {item_entry.stock}", status=200)
-
+    return Response(f"Item: {item_id} stock updated to: {item.stock}", status=200)
 
 @app.post('/subtract/<item_id>/<amount>')
 def remove_stock(item_id: str, amount: int):
-    item_entry: StockValue = get_item_from_db(item_id)
-    # update stock, serialize and update database
-    item_entry.stock -= int(amount)
-    app.logger.debug(f"Item: {item_id} stock updated to: {item_entry.stock}")
-    if item_entry.stock < 0:
+    item = get_item_from_db(item_id)
+    item.stock -= int(amount)
+    if item.stock < 0:
         abort(400, f"Item: {item_id} stock cannot get reduced below zero!")
-    try:
-        db.set(item_id, msgpack.encode(item_entry))
-    except redis.exceptions.RedisError:
+    retries = 0
+    while retries < MAX_RETRIES:
+        try:
+            db.session.add(item)
+            db.session.commit()
+            break
+        except OperationalError:
+            db.session.rollback()
+            retries += 1
+    else:
+        app.logger.error("Failed to subtract stock")
         return abort(400, DB_ERROR_STR)
-    return Response(f"Item: {item_id} stock updated to: {item_entry.stock}", status=200)
-
+    return Response(f"Item: {item_id} stock updated to: {item.stock}", status=200)
 
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=8000, debug=True)
