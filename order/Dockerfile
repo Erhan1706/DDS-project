@@ -10,6 +10,6 @@ RUN pip install -r requirements.txt
 COPY . .
 RUN chmod +x ./wait-for-kafka.sh
 
-EXPOSE 5000
+EXPOSE 5000 5678
 
 CMD ["./wait-for-kafka.sh"]
