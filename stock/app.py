@@ -18,7 +18,7 @@ MAX_RETRIES = 3
 
 app = Flask("stock-service")
 
-app.config["SQLALCHEMY_DATABASE_URI"] = "postgresql://postgres:postgres@stock-postgres:5432/stock-db"
+app.config["SQLALCHEMY_DATABASE_URI"] = "postgresql://postgres:postgres@stock-postgres:5432/stock_db"
 app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
     "isolation_level": "SERIALIZABLE"  # Strongest isolation level for postgres
 }
@@ -29,7 +29,6 @@ def close_db_connection():
     with app.app_context():
         db.session.close()
 
-db.create_all()
 atexit.register(close_db_connection)
 
 class StockValue(Struct):
@@ -43,7 +42,7 @@ producer = KafkaProducer(
 )
 
 # Temporary consumers to test saga behaviour
-def start_stock_consumer():
+def start_stock_action_consumer():
     consumer = KafkaConsumer(
         'verify_stock_details',
         bootstrap_servers='kafka:9092',
@@ -51,11 +50,52 @@ def start_stock_consumer():
         value_deserializer=lambda x: json.loads(x.decode('utf-8'))
     )
     for message in consumer:
-        app.logger.info("Stock message consumed")
-        producer.send('stock_details_failure', value=message.value)
-        #producer.send('stock_details_failure', value={})
-    #producer.send('stock_details_success', value={"item_id": "1234"})
-    #producer.send('stock_details_failure', value={})
+        app.logger.info(f"Stock message consumed for {message.value['saga_id']}")
+        try:
+            # Atomic transaction block to make whole cart update a single transaction
+            with db.session.begin():
+                for item_id, amount in message.value["items"].items():
+                    remove_stock_trans(item_id, amount) 
+            producer.send('stock_details_success', value={"saga_id": message.value['saga_id']})
+        except Exception as e:
+            db.session.rollback()
+            app.logger.error(f"Error updating stock: {e}")
+            producer.send('stock_details_failure', value={"saga_id": message.value['saga_id'], "reason": str(e)})
+
+        producer.flush()
+
+def remove_stock_trans(item_id: str, amount: int):
+    item = get_item_from_db(item_id)
+    item.stock -= int(amount)
+    if item.stock < 0:
+        raise ValueError(f"Item: {item_id} stock cannot get reduced below zero!")
+    db.session.add(item) 
+
+def start_stock_compensation_consumer():
+    consumer = KafkaConsumer(
+        'compensate_stock_details',
+        bootstrap_servers='kafka:9092',
+        auto_offset_reset='latest',
+        value_deserializer=lambda x: json.loads(x.decode('utf-8'))
+    )
+    for message in consumer:
+        #app.logger.info(f"Stock message consumed for {message.value['saga_id']}")
+        try:
+            # Atomic transaction block to make whole cart update a single transaction
+            with db.session.begin():
+                for item_id, amount in message.value["items"].items():
+                    add_stock_trans(item_id, amount) 
+            #producer.send('stock_details_success', value=message.value)
+        except Exception as e:
+            db.session.rollback()
+            app.logger.error(f"Error updating stock: {e}")
+            #producer.send('stock_details_failure', value={"saga_id": message.value['saga_id'], "reason": str(e)})
+        producer.flush()
+
+def add_stock_trans(item_id: str, amount: int):
+    item = get_item_from_db(item_id)
+    item.stock += int(amount)
+    db.session.add(item) 
 
 def start_payment_consumer():
     consumer = KafkaConsumer(
@@ -66,7 +106,7 @@ def start_payment_consumer():
     )
     for message in consumer:
         app.logger.info("Payment message consumed")
-        producer.send('payment_details_failure', value=message.value)
+        producer.send('payment_details_success', value=message.value)
 
 class Stock(db.Model):
     __tablename__ = "stock"
@@ -82,14 +122,17 @@ def send_message():
     producer.flush()
     return jsonify({'status': 'Message sent to Kafka'}), 200
 
-threading.Thread(target=start_stock_consumer, daemon=True).start()
+threading.Thread(target=start_stock_action_consumer, daemon=True).start()
+threading.Thread(target=start_stock_compensation_consumer, daemon=True).start()
 threading.Thread(target=start_payment_consumer, daemon=True).start()
 
 def get_item_from_db(item_id: str) -> Stock:
     item = Stock.query.get(item_id)
     if item is None:
-        abort(400, f"Item: {item_id} not found!")
+        raise ValueError(f"Item: {item_id} not found!")
+        #abort(400, f"Item: {item_id} not found!")
     return item
+
 @app.post('/item/create/<price>')
 def create_item(price: int):
     item = Stock(price=int(price), stock=0)
@@ -164,6 +207,9 @@ def remove_stock(item_id: str, amount: int):
         return abort(400, DB_ERROR_STR)
     return Response(f"Item: {item_id} stock updated to: {item.stock}", status=200)
 
+with app.app_context():
+    db.create_all()
+    
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=8000, debug=True)
 else:

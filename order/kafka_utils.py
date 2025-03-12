@@ -50,12 +50,6 @@ def handle_stock_message(data: dict, topic: str):
         return
     app.logger.info(f"Consumed message: {data}")
     try: 
-        # Get order state corresponding to the saga_id
-        with app.app_context():
-            orderState: OrderState = OrderState.query.filter_by(saga_id=saga_id).first()
-            if orderState is None:
-                app.logger.error(f"Order state not found for {saga_id}")
-                return
         orchestrator.process_step(topic, saga_id)
     except Exception as e:
         app.logger.error(f"Error in getting order state: {e}")

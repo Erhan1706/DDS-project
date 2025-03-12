@@ -47,16 +47,16 @@ services:
     env_file:
       - env/stock_redis.env
     depends_on:
-      - stock-db
+      - stock-postgres
       - kafka
     networks:
       - app_network
 
-  stock-db:
-    image: redis:7.2-bookworm
-    command: redis-server --requirepass redis --maxmemory 512mb
-    networks:
-      - app_network
+  #stock-db:
+  #  image: redis:7.2-bookworm
+  #  command: redis-server --requirepass redis --maxmemory 512mb
+  #  networks:
+  #    - app_network
 
   payment-service:
     build: ./payment
@@ -92,6 +92,7 @@ services:
     image: postgres:15.2
     user: postgres
     environment:
+    - "POSTGRES_DB=stock_db"
     - "POSTGRES_HOST_AUTH_METHOD=trust"
     - "POSTGRES_USER=postgres"
     - "POSTGRES_PASSWORD=postgres"
