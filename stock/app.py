@@ -49,20 +49,21 @@ def start_stock_action_consumer():
         auto_offset_reset='latest',
         value_deserializer=lambda x: json.loads(x.decode('utf-8'))
     )
-    for message in consumer:
-        app.logger.info(f"Stock message consumed for {message.value['saga_id']}")
-        try:
-            # Atomic transaction block to make whole cart update a single transaction
-            with db.session.begin():
-                for item_id, amount in message.value["items"].items():
-                    remove_stock_trans(item_id, amount) 
-            producer.send('stock_details_success', value={"saga_id": message.value['saga_id']})
-        except Exception as e:
-            db.session.rollback()
-            app.logger.error(f"Error updating stock: {e}")
-            producer.send('stock_details_failure', value={"saga_id": message.value['saga_id'], "reason": str(e)})
+    with app.app_context():
+        for message in consumer:
+            app.logger.info(f"Stock message consumed for {message.value['saga_id']}")
+            try:
+                # Atomic transaction block to make whole cart update a single transaction
+                with db.session.begin():
+                    for item_id, amount in message.value["items"].items():
+                        remove_stock_trans(item_id, amount) 
+                producer.send('stock_details_success', value={"saga_id": message.value['saga_id']})
+            except Exception as e:
+                db.session.rollback()
+                app.logger.error(f"Error updating stock: {e}")
+                producer.send('stock_details_failure', value={"saga_id": message.value['saga_id'], "reason": str(e)})
 
-        producer.flush()
+            producer.flush()
 
 def remove_stock_trans(item_id: str, amount: int):
     item = get_item_from_db(item_id)
@@ -78,19 +79,20 @@ def start_stock_compensation_consumer():
         auto_offset_reset='latest',
         value_deserializer=lambda x: json.loads(x.decode('utf-8'))
     )
-    for message in consumer:
-        #app.logger.info(f"Stock message consumed for {message.value['saga_id']}")
-        try:
-            # Atomic transaction block to make whole cart update a single transaction
-            with db.session.begin():
-                for item_id, amount in message.value["items"].items():
-                    add_stock_trans(item_id, amount) 
-            #producer.send('stock_details_success', value=message.value)
-        except Exception as e:
-            db.session.rollback()
-            app.logger.error(f"Error updating stock: {e}")
-            #producer.send('stock_details_failure', value={"saga_id": message.value['saga_id'], "reason": str(e)})
-        producer.flush()
+    with app.app_context():
+        for message in consumer:
+            #app.logger.info(f"Stock message consumed for {message.value['saga_id']}")
+            try:
+                # Atomic transaction block to make whole cart update a single transaction
+                with db.session.begin():
+                    for item_id, amount in message.value["items"].items():
+                        add_stock_trans(item_id, amount) 
+                #producer.send('stock_details_success', value=message.value)
+            except Exception as e:
+                db.session.rollback()
+                app.logger.error(f"Error updating stock: {e}")
+                #producer.send('stock_details_failure', value={"saga_id": message.value['saga_id'], "reason": str(e)})
+            producer.flush()
 
 def add_stock_trans(item_id: str, amount: int):
     item = get_item_from_db(item_id)
