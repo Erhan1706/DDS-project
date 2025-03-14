@@ -87,7 +87,7 @@ def add_item(order_id: str, item_id: str, quantity: int):
         # Request failed because item does not exist
         abort(400, f"Item: {item_id} does not exist!")
     item_json: dict = item_reply.json()
-    order.items.append((item_id, int(quantity)))
+    order.items[item_id] = int(quantity)
     order.total_cost += int(quantity) * item_json["price"]
     retries = 0
     while retries < MAX_RETRIES:
@@ -116,7 +116,7 @@ def checkout(order_id: str):
     order: Order = get_order_from_db(order_id)
     # get the quantity per item
     items_quantities: dict[str, int] = defaultdict(int)
-    for item_id, quantity in order.items:
+    for item_id, quantity in order.items.items():
         items_quantities[item_id] += quantity
 
     saga_id = str(uuid.uuid4())

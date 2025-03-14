@@ -6,11 +6,10 @@ import threading
 
 from flask import Flask, jsonify, abort, Response, request
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.exc import OperationalError
 from kafka import KafkaProducer, KafkaConsumer
-from msgspec import Struct
+from msgspec import Struct, msgpack
 
 
 DB_ERROR_STR = "DB error"
@@ -54,9 +53,10 @@ def start_stock_action_consumer():
             app.logger.info(f"Stock message consumed for {message.value['saga_id']}")
             try:
                 # Atomic transaction block to make whole cart update a single transaction
-                with db.session.begin():
-                    for item_id, amount in message.value["items"].items():
-                        remove_stock_trans(item_id, amount) 
+                db.session.begin()
+                for item_id, amount in message.value["items"].items():
+                    remove_stock_trans(item_id, amount) 
+                db.session.commit()
                 producer.send('stock_details_success', value={"saga_id": message.value['saga_id']})
             except Exception as e:
                 db.session.rollback()
@@ -99,16 +99,6 @@ def add_stock_trans(item_id: str, amount: int):
     item.stock += int(amount)
     db.session.add(item) 
 
-def start_payment_consumer():
-    consumer = KafkaConsumer(
-        'verify_payment_details',
-        bootstrap_servers='kafka:9092',
-        auto_offset_reset='latest',
-        value_deserializer=lambda x: json.loads(x.decode('utf-8'))
-    )
-    for message in consumer:
-        app.logger.info("Payment message consumed")
-        producer.send('payment_details_success', value=message.value)
 
 class Stock(db.Model):
     __tablename__ = "stock"
@@ -116,17 +106,8 @@ class Stock(db.Model):
     stock = db.Column(db.Integer, nullable=False, default=0)
     price = db.Column(db.Integer, nullable=False)
 
-@app.post('/send')
-def send_message():
-    data = request.json
-    message = data.get('message')
-    producer.send('test-topic', value=message)
-    producer.flush()
-    return jsonify({'status': 'Message sent to Kafka'}), 200
-
 threading.Thread(target=start_stock_action_consumer, daemon=True).start()
 threading.Thread(target=start_stock_compensation_consumer, daemon=True).start()
-threading.Thread(target=start_payment_consumer, daemon=True).start()
 
 def get_item_from_db(item_id: str) -> Stock:
     item = Stock.query.get(item_id)
@@ -151,8 +132,9 @@ def batch_init_stock(n: int, starting_stock: int, item_price: int):
     n = int(n)
     starting_stock = int(starting_stock)
     item_price = int(item_price)
-    items = [Stock(stock=starting_stock, price=item_price)
-                                    for i in range(n)]
+    kv_pairs: dict[str, bytes] = {f"{i}": msgpack.encode(StockValue(stock=starting_stock, price=item_price))
+                                  for i in range(n)}
+    items = [Stock(id=uuid.UUID(key), stock=starting_stock, price=item_price) for key in kv_pairs.keys()]
     try:
         db.session.bulk_save_objects(items)
         db.session.commit()

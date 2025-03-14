@@ -91,6 +91,7 @@ class Orchestrator():
             return abort(400, DB_ERROR_STR)
         current_step: int = self.sagas_info[saga_id]["current_step"]
         # Revert all steps
+        current_step -= 1
         while current_step >= 0:
             try:
               self.steps[current_step].revert(self.sagas_info[saga_id]["context"])

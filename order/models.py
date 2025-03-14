@@ -2,6 +2,7 @@ from sqlalchemy.dialects.postgresql import UUID, JSONB
 from __init__ import db
 import uuid
 from msgspec import Struct
+from sqlalchemy.ext.mutable import MutableDict
 
 class Order(db.Model):
     __tablename__ = "orders"
@@ -9,7 +10,7 @@ class Order(db.Model):
     id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = db.Column(db.String(50), nullable=False)
     paid = db.Column(db.Boolean, default=False, nullable=False)
-    items = db.Column(JSONB, default=[])  # Store items as JSON array
+    items = db.Column(MutableDict.as_mutable(JSONB), default=dict)  # Store items as JSON array
     total_cost = db.Column(db.Integer, default=0, nullable=False)
 
     def to_dict(self):
