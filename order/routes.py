@@ -142,11 +142,11 @@ def checkout(order_id: str):
             break
         except OperationalError:
             db.session.rollback()
-            retries += 1        
-        return Response("Checkout successful", status=200)
+            retries += 1
     else:
         app.logger.error("Failed to commit order to database")
         return abort(400, DB_ERROR_STR)
+    app.logger.info("Checkout successful")
     return Response("Checkout successful", status=200)
     
     """ user_reply = send_post_request(f"{GATEWAY_URL}/payment/pay/{order.user_id}/{order.total_cost}")
