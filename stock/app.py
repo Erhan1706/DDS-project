@@ -132,9 +132,7 @@ def batch_init_stock(n: int, starting_stock: int, item_price: int):
     n = int(n)
     starting_stock = int(starting_stock)
     item_price = int(item_price)
-    kv_pairs: dict[str, bytes] = {f"{i}": msgpack.encode(StockValue(stock=starting_stock, price=item_price))
-                                  for i in range(n)}
-    items = [Stock(id=uuid.UUID(key), stock=starting_stock, price=item_price) for key in kv_pairs.keys()]
+    items = [Stock(stock=starting_stock, price=item_price) for _ in range(n)]
     try:
         db.session.bulk_save_objects(items)
         db.session.commit()

@@ -43,8 +43,9 @@ def batch_init_users(n: int, n_items: int, n_users: int, item_price: int):
     orders = []
     for _ in range(n):
         user_id = str(random.randint(0, n_users - 1))
-        items = [(str(random.randint(0, n_items - 1)), 1) for _ in range(2)]
-        orders.append(Order(user_id=user_id, items=items, total_cost=2 * item_price))
+        # items = [(str(random.randint(0, n_items - 1)), 1) for _ in range(2)]
+        items_dict = {str(random.randint(0, n_items - 1)): 1 for _ in range(2)}
+        orders.append(Order(user_id=user_id, items=items_dict, total_cost=2 * item_price))
     
     try:
         db.session.bulk_save_objects(orders)

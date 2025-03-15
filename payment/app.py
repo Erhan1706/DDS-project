@@ -133,9 +133,7 @@ def create_user():
 def batch_init_users(n: int, starting_money: int):
     n = int(n)
     starting_money = int(starting_money)
-    kv_pairs: dict[str, bytes] = {f"{i}": msgpack.encode(UserValue(credit=starting_money))
-                                  for i in range(n)}
-    users = [UserValue(credit=starting_money) for key in kv_pairs.keys()]
+    users = [UserValue(credit=starting_money) for _ in range(n)]
     try:
         db.session.bulk_save_objects(users)
         db.session.commit()
