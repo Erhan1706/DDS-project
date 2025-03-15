@@ -12,4 +12,4 @@ RUN chmod +x ./wait-for-kafka.sh
 
 
 EXPOSE 5000
-CMD ["./wait-for-kafka.sh"]
+CMD ["bash", "./wait-for-kafka.sh"]
