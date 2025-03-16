@@ -7,7 +7,7 @@ from sqlalchemy.ext.mutable import MutableDict
 class Order(db.Model):
     __tablename__ = "orders"
     
-    id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = db.Column(db.String(), primary_key=True,default = lambda: str(uuid.uuid4()))
     user_id = db.Column(db.String(50), nullable=False)
     paid = db.Column(db.Boolean, default=False, nullable=False)
     items = db.Column(MutableDict.as_mutable(JSONB), default=dict)  # Store items as JSON array
@@ -27,7 +27,7 @@ class OrderState(db.Model):
 
     id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     saga_id = db.Column(UUID(as_uuid=True), nullable=False)
-    order_id = db.Column(UUID(as_uuid=True), db.ForeignKey('orders.id'), nullable=False)
+    order_id = db.Column(db.String, db.ForeignKey('orders.id'), nullable=False)
     state = db.Column(db.String(50), nullable=False)
 
 # Old models

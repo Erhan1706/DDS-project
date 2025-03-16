@@ -40,7 +40,6 @@ producer = KafkaProducer(
     value_serializer=lambda v: json.dumps(v).encode('utf-8')
 )
 
-# Temporary consumers to test saga behaviour
 def start_stock_action_consumer():
     consumer = KafkaConsumer(
         'verify_stock_details',
@@ -102,7 +101,7 @@ def add_stock_trans(item_id: str, amount: int):
 
 class Stock(db.Model):
     __tablename__ = "stock"
-    id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = db.Column(db.String, primary_key=True, default=lambda: str(uuid.uuid4()))
     stock = db.Column(db.Integer, nullable=False, default=0)
     price = db.Column(db.Integer, nullable=False)
 
@@ -132,7 +131,9 @@ def batch_init_stock(n: int, starting_stock: int, item_price: int):
     n = int(n)
     starting_stock = int(starting_stock)
     item_price = int(item_price)
-    items = [Stock(stock=starting_stock, price=item_price) for _ in range(n)]
+    kv_pairs: dict[str, bytes] = {f"{i}": msgpack.encode(StockValue(stock=starting_stock, price=item_price))
+                                  for i in range(n)}
+    items = [Stock(id=str(key), stock=starting_stock, price=item_price) for key in kv_pairs.keys()]
     try:
         db.session.bulk_save_objects(items)
         db.session.commit()

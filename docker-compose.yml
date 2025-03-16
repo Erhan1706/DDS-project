@@ -51,6 +51,8 @@ services:
       - kafka
     networks:
       - app_network
+    volumes:
+      - ./stock/app.py:/home/flask-app/app.py
 
   #stock-db:
   #  image: redis:7.2-bookworm
@@ -68,6 +70,8 @@ services:
       - kafka
     networks:
       - app_network
+    volumes:
+      - ./payment/app.py:/home/flask-app/app.py
 
   #payment-db:
   #  image: redis:7.2-bookworm

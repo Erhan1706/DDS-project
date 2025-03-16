@@ -13,6 +13,8 @@ from kafka import KafkaProducer, KafkaConsumer
 from sqlalchemy.dialects.postgresql import UUID
 import json
 import threading
+from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy.exc import OperationalError
 
 from sqlalchemy.exc import OperationalError
 
@@ -96,35 +98,26 @@ def return_payment_trans(user_id: str, amount: int):
 threading.Thread(target=start_payment_action_consumer, daemon=True).start()
 threading.Thread(target=start_payment_compensation_consumer, daemon=True).start()
 
-class UserValue(db.Model):
-    __tablename__ = "user_value_table"
-    id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    credit = db.Column(db.Integer, nullable=False, default=0)
+class User(db.Model):
+    __tablename__ = 'users'
+    id = db.Column(db.String, primary_key=True)
+    credit = db.Column(db.Integer)  
 
-""" Temporary test endpoint to send messages to Kafka """
-@app.post('/send')
-def send_message():
-    data = request.json
-    message = data.get('message')
-    producer.send('test-topic', value=message)
-    producer.flush()
-    return jsonify({'status': 'Message sent to Kafka'}), 200
-
-
-def get_user_from_db(user_id: str) -> UserValue | None:
-    user = UserValue.query.get(user_id)
+def get_user_from_db(user_id: str) -> User | None:
+    user = User.query.get(user_id)
     if user is None:
         raise ValueError(f"Item: {user_id} not found!")
     return user
 
-
 @app.post('/create_user')
 def create_user():
-    user = UserValue(credit=0)
+    key = str(uuid.uuid4())
+    user = User(id=key, credit=0)
     try:
         db.session.add(user)
         db.session.commit()
     except Exception:
+        db.session.rollback()
         return abort(400, DB_ERROR_STR)
     return jsonify({'user_id': str(user.id)})
 
@@ -133,18 +126,19 @@ def create_user():
 def batch_init_users(n: int, starting_money: int):
     n = int(n)
     starting_money = int(starting_money)
-    users = [UserValue(credit=starting_money) for _ in range(n)]
+    users = [User(id=key, credit=starting_money) for key in range(n)]
     try:
         db.session.bulk_save_objects(users)
         db.session.commit()
     except Exception:
+        db.session.rollback()
         return abort(400, DB_ERROR_STR)
     return jsonify({"msg": "Batch init for users successful"})
 
 
 @app.get('/find_user/<user_id>')
 def find_user(user_id: str):
-    user_entry: UserValue = get_user_from_db(user_id)
+    user_entry: User = get_user_from_db(user_id)
     return jsonify(
         {
             "user_id": user_id,
@@ -152,10 +146,9 @@ def find_user(user_id: str):
         }
     )
 
-
 @app.post('/add_funds/<user_id>/<amount>')
 def add_credit(user_id: str, amount: int):
-    user_entry: UserValue = get_user_from_db(user_id)
+    user_entry: User = get_user_from_db(user_id)
     # update credit, serialize and update database
     user_entry.credit += int(amount)
     retries = 0
@@ -168,19 +161,16 @@ def add_credit(user_id: str, amount: int):
             db.session.rollback()
             retries += 1
     else:
-        app.logger.error("Failed to add funds")
+        app.logger.error(f"Failed to add credit to user: {user_id}")
         return abort(400, DB_ERROR_STR)
     return Response(f"User: {user_id} credit updated to: {user_entry.credit}", status=200)
 
 
 @app.post('/pay/<user_id>/<amount>')
 def remove_credit(user_id: str, amount: int):
-    app.logger.debug(f"Removing {amount} credit from user: {user_id}")
-    user_entry: UserValue = get_user_from_db(user_id)
+    user_entry: User = get_user_from_db(user_id)
     # update credit, serialize and update database
     user_entry.credit -= int(amount)
-    if user_entry.credit < 0:
-        abort(400, f"User: {user_id} credit cannot get reduced below zero!")
     retries = 0
     while retries < MAX_RETRIES:
         try:
@@ -191,7 +181,7 @@ def remove_credit(user_id: str, amount: int):
             db.session.rollback()
             retries += 1
     else:
-        app.logger.error(f"Failed to pay for {user_id} amount {amount}")
+        app.logger.error(f"Failed to remove credit to user: {user_id}")
         return abort(400, DB_ERROR_STR)
     return Response(f"User: {user_id} credit updated to: {user_entry.credit}", status=200)
 

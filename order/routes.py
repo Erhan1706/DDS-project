@@ -41,12 +41,10 @@ def batch_init_users(n: int, n_items: int, n_users: int, item_price: int):
     n, n_items, n_users, item_price = map(int, [n, n_items, n_users, item_price])
     
     orders = []
-    for _ in range(n):
+    for i in range(n):
         user_id = str(random.randint(0, n_users - 1))
-        # items = [(str(random.randint(0, n_items - 1)), 1) for _ in range(2)]
-        items_dict = {str(random.randint(0, n_items - 1)): 1 for _ in range(2)}
-        orders.append(Order(user_id=user_id, items=items_dict, total_cost=2 * item_price))
-    
+        items = {str(random.randint(0, n_items - 1)): 1 for _ in range(2)}
+        orders.append(Order(id=str(i), user_id=user_id, items=items, total_cost=2 * item_price))
     try:
         db.session.bulk_save_objects(orders)
         db.session.commit()
@@ -148,10 +146,3 @@ def checkout(order_id: str):
         return abort(400, DB_ERROR_STR)
     app.logger.info("Checkout successful")
     return Response("Checkout successful", status=200)
-    
-    """ user_reply = send_post_request(f"{GATEWAY_URL}/payment/pay/{order.user_id}/{order.total_cost}")
-    if user_reply.status_code != 200:
-        # If the user does not have enough credit we need to rollback all the item stock subtractions
-        rollback_stock(removed_items)
-        abort(400, "User out of credit")"
-    """
