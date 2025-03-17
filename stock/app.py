@@ -189,9 +189,6 @@ def remove_stock(item_id: str, amount: int):
         app.logger.error("Failed to subtract stock")
         return abort(400, DB_ERROR_STR)
     return Response(f"Item: {item_id} stock updated to: {item.stock}", status=200)
-
-with app.app_context():
-    db.create_all()
     
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=8000, debug=True)
