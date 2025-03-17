@@ -6,8 +6,8 @@ import threading
 app = create_app()
 
 # For debugging purposes
-import debugpy
-debugpy.listen(("0.0.0.0", 5678))
+#import debugpy
+#debugpy.listen(("0.0.0.0", 5678))
 
 
 threading.Thread(target=start_stock_listener, args=(app,), daemon=True).start()

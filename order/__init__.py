@@ -27,13 +27,14 @@ def create_app():
     
     db.init_app(app)
     
-    def close_db_connection():
-        db.session.close()
-    atexit.register(close_db_connection)
-    
     # Create tables
-    with app.app_context():
-        db.create_all()
+    #with app.app_context():
+    #    db.create_all()
+
+    @app.teardown_appcontext
+    def close_db_connection(exception=None):
+        db.session.remove()
+
     
     # Register blueprints
     from routes import order_bp
