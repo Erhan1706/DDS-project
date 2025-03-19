@@ -25,8 +25,8 @@ class Order(db.Model):
 class OrderState(db.Model):
     __tablename__ = "order_states"
 
-    id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    saga_id = db.Column(UUID(as_uuid=True), nullable=False)
+    id = db.Column(db.String(), primary_key=True, default = lambda: str(uuid.uuid4()))
+    saga_id = db.Column(db.String(), nullable=False, default = lambda: str(uuid.uuid4()))
     order_id = db.Column(db.String, db.ForeignKey('orders.id'), nullable=False)
     state = db.Column(db.String(50), nullable=False)
 
