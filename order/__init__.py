@@ -1,5 +1,7 @@
 import os
 import atexit
+
+import redis
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 
@@ -16,6 +18,11 @@ REQ_ERROR_STR = "Requests error"
 GATEWAY_URL = os.environ['GATEWAY_URL']
 
 db: SQLAlchemy = SQLAlchemy()
+
+redis_db: redis.Redis = redis.Redis(host=os.environ['REDIS_HOST'],
+                                  port=int(os.environ['REDIS_PORT']),
+                                  password=os.environ['REDIS_PASSWORD'],
+                                  db=int(os.environ['REDIS_DB']))
 
 def create_app():
     app = Flask("order-service")
@@ -34,6 +41,7 @@ def create_app():
     @app.teardown_appcontext
     def close_db_connection(exception=None):
         db.session.remove()
+        redis_db.close()
 
     
     # Register blueprints

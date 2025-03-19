@@ -35,11 +35,11 @@ services:
       - ./order/kafka_utils.py:/home/flask-app/kafka_utils.py
 
 
-  #order-db:
-  #  image: redis:7.2-bookworm
-  #  command: redis-server --requirepass redis --maxmemory 512mb
-  #  networks:
-  #    - app_network
+  order-redis:
+    image: redis:7.2-bookworm
+    command: redis-server --requirepass redis --maxmemory 512mb
+    networks:
+      - app_network
 
   stock-service:
     build: ./stock
