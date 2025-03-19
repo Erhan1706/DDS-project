@@ -43,6 +43,7 @@ producer = KafkaProducer(
 def start_stock_action_consumer():
     consumer = KafkaConsumer(
         'verify_stock_details',
+        group_id='stock_action_listener',
         bootstrap_servers='kafka:9092',
         auto_offset_reset='latest',
         value_deserializer=lambda x: json.loads(x.decode('utf-8'))
@@ -74,6 +75,7 @@ def remove_stock_trans(item_id: str, amount: int):
 def start_stock_compensation_consumer():
     consumer = KafkaConsumer(
         'compensate_stock_details',
+        group_id='stock_compensation_listener',
         bootstrap_servers='kafka:9092',
         auto_offset_reset='latest',
         value_deserializer=lambda x: json.loads(x.decode('utf-8'))

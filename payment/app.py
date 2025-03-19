@@ -45,6 +45,7 @@ producer = KafkaProducer(
 def start_payment_action_consumer():
     consumer = KafkaConsumer(
         'verify_payment_details',
+        group_id='payment_action_listener',
         bootstrap_servers='kafka:9092',
         auto_offset_reset='latest',
         value_deserializer=lambda x: json.loads(x.decode('utf-8'))
@@ -64,6 +65,7 @@ def start_payment_action_consumer():
 def start_payment_compensation_consumer():
     consumer = KafkaConsumer(
         'compensate_payment_details',
+        group_id='payment_compensation_listener',
         bootstrap_servers='kafka:9092',
         auto_offset_reset='latest',
         value_deserializer=lambda x: json.loads(x.decode('utf-8'))

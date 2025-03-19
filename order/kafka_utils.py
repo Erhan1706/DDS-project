@@ -36,6 +36,7 @@ def start_stock_listener(app):
         consumer = KafkaConsumer(
             'stock_details_success',
             'stock_details_failure',
+            group_id='order_stock_listener',
             bootstrap_servers='kafka:9092',
             auto_offset_reset='latest',
             value_deserializer=lambda x: json.loads(x.decode('utf-8'))
@@ -60,6 +61,7 @@ def start_payment_listener(app):
         consumer = KafkaConsumer(
             'payment_details_success',
             'payment_details_failure',
+            group_id='order_payment_listener',
             bootstrap_servers='kafka:9092',
             auto_offset_reset='latest',
             value_deserializer=lambda x: json.loads(x.decode('utf-8'))
