@@ -125,10 +125,8 @@ class Orchestrator():
         else:
             app.logger.error(f"Failed to change order state to failed {saga_id}")
             return abort(400, DB_ERROR_STR)
-        app.logger.info(f"Halfway here: {saga_id}")
         saga = self.get_saga(saga_id)
         current_step: int = saga["current_step"]
-        app.logger.info(f"Halfway here2: {saga_id}")
         # Revert all steps
         current_step -= 1
         while current_step >= 0:

@@ -89,8 +89,7 @@ def start_payment_listener(app):
 def start_event_finished_listener(app):
     with app.app_context():
         consumer = KafkaConsumer(
-            'payment_details_success',
-            'payment_details_failure',
+            'event_finished',
             bootstrap_servers='kafka:9092',
             auto_offset_reset='latest',
             value_deserializer=lambda x: json.loads(x.decode('utf-8'))
