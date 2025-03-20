@@ -61,12 +61,12 @@ def handle_stock_message(data: dict, topic: str):
         app.logger.error(f"Error in getting order state: {e}")
         return
 
-def handle_finished_event_message(data: dict, topic: str):
+def handle_finished_event_message(data: dict):
     saga_id = data.get("saga_id")
     if not saga_id:
         app.logger.error("No saga_id in message")
         return
-    app.logger.info(f"Consumed message: {data}")
+    app.logger.info(f"Consumed finish event message: {data}")
     try:
         orchestrator.finish_event(saga_id)
     except Exception as e:
@@ -91,7 +91,6 @@ def start_event_finished_listener(app):
         consumer = KafkaConsumer(
             'payment_details_success',
             'payment_details_failure',
-            group_id='event_finished_listener',
             bootstrap_servers='kafka:9092',
             auto_offset_reset='latest',
             value_deserializer=lambda x: json.loads(x.decode('utf-8'))

@@ -124,7 +124,7 @@ def checkout(order_id: str):
     orchestrator.start(event, context)
 
     if not event.wait(timeout=20):  # Block until notified or timeout
-        app.logger.error("Checkout timed out. Saga id [", saga_id, "]")
+        app.logger.error("Checkout timed out. Saga id [" + saga_id + "]")
         return Response("Checkout timed out", status=400)
     
     order_status = OrderState.query.filter_by(saga_id=saga_id).first()

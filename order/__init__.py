@@ -19,10 +19,8 @@ GATEWAY_URL = os.environ['GATEWAY_URL']
 
 db: SQLAlchemy = SQLAlchemy()
 
-redis_db: redis.Redis = redis.Redis(host=os.environ['REDIS_HOST'],
-                                  port=int(os.environ['REDIS_PORT']),
-                                  password=os.environ['REDIS_PASSWORD'],
-                                  db=int(os.environ['REDIS_DB']))
+redis_pool = redis.ConnectionPool(host=os.environ['REDIS_HOST'], port=int(os.environ['REDIS_PORT']), password =os.environ['REDIS_PASSWORD'], db=int(os.environ['REDIS_DB']), decode_responses=True)
+redis_db: redis.Redis = redis.Redis(connection_pool=redis_pool)
 
 def create_app():
     app = Flask("order-service")

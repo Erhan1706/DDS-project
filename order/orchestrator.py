@@ -3,9 +3,14 @@ import json
 import redis
 from kafka import KafkaProducer
 from threading import Event
+
+from sqlalchemy.exc import OperationalError
+
 from models import OrderState
 from __init__ import db, DB_ERROR_STR, redis_db
-from flask import abort
+from flask import abort, current_app as app
+
+MAX_RETRIES = 3
 
 class Step():
     def __init__(self, name, action, compensation):
@@ -85,29 +90,45 @@ class Orchestrator():
             # Update order state to COMPLETED and notify the main thread
             orderStatus = OrderState.query.filter_by(saga_id=saga_id).first()
             orderStatus.state = "COMPLETED"
-            try:
-                db.session.add(orderStatus)
-                db.session.commit()
-            except Exception:
-                db.session.rollback()
+            retries = 0
+            while retries < MAX_RETRIES:
+                try:
+                    db.session.add(orderStatus)
+                    db.session.commit()
+                    break
+                except OperationalError:
+                    db.session.rollback()
+                    retries += 1
+            else:
+                app.logger.error(f"Failed to change order state to completed {saga_id}")
                 return abort(400, DB_ERROR_STR)
-            self.pending_events[saga_id].set()
-            self.finishing_event.run({"saga_id": saga_id})
+            if saga_id in self.pending_events:
+                self.pending_events[saga_id].set()
+            else:
+                self.finishing_event.run({"saga_id": saga_id})
                 
 
     def compensate(self, saga_id: str):
         orderStatus = OrderState.query.filter_by(saga_id=saga_id).first()
         if orderStatus is None:
             return abort(400, f"Order: {saga_id} not found!")
-        orderStatus.state = "FAILED" 
-        try:
-            db.session.add(orderStatus)
-            db.session.commit()
-        except Exception:
-            db.session.rollback()
+        orderStatus.state = "FAILED"
+        retries = 0
+        while retries < MAX_RETRIES:
+            try:
+                db.session.add(orderStatus)
+                db.session.commit()
+                break
+            except OperationalError:
+                db.session.rollback()
+                retries += 1
+        else:
+            app.logger.error(f"Failed to change order state to failed {saga_id}")
             return abort(400, DB_ERROR_STR)
+        app.logger.info(f"Halfway here: {saga_id}")
         saga = self.get_saga(saga_id)
         current_step: int = saga["current_step"]
+        app.logger.info(f"Halfway here2: {saga_id}")
         # Revert all steps
         current_step -= 1
         while current_step >= 0:
@@ -115,10 +136,12 @@ class Orchestrator():
               self.steps[current_step].revert(saga["context"])
               current_step -= 1
             except Exception as e:
-                print(f"Compensation error in {self.steps[current_step].name}: {e}")
+                app.logger.error(f"Compensation error in {self.steps[current_step].name}: {e}")
         # Notify the main thread
-        self.pending_events[saga_id].set()
-        self.finishing_event.run({"saga_id": saga_id})
+        if saga_id in self.pending_events:
+            self.pending_events[saga_id].set()
+        else:
+            self.finishing_event.run({"saga_id": saga_id})
 
     def finish_event(self, saga_id: str):
         if saga_id in self.pending_events:
