@@ -1,0 +1,31 @@
+{
+    "Servers": {
+        "1": {
+            "Name": "Order Postgres",
+            "Group": "Servers",
+            "Host": "order-postgres",
+            "Port": 5432,
+            "MaintenanceDB": "order-db",
+            "Username": "postgres",
+            "SSLMode": "prefer"
+        },
+        "2": {
+            "Name": "Stock Postgres",
+            "Group": "Servers",
+            "Host": "stock-postgres",
+            "Port": 5432,
+            "MaintenanceDB": "stock_db",
+            "Username": "postgres",
+            "SSLMode": "prefer"
+        },
+        "3": {
+            "Name": "Payment Postgres",
+            "Group": "Servers",
+            "Host": "payment-postgres",
+            "Port": 5432,
+            "MaintenanceDB": "payment_db",
+            "Username": "postgres",
+            "SSLMode": "prefer"
+        }
+    }
+}

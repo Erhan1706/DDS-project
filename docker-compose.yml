@@ -20,7 +20,7 @@ services:
     environment:
       - GATEWAY_URL=http://gateway:80
     ports:
-      - "5000:5000"
+      - "9001:5000"
       - "5678:5678"
     env_file:
       - env/order_redis.env
@@ -126,12 +126,16 @@ services:
     environment:
       PGADMIN_DEFAULT_EMAIL: admin@admin.com
       PGADMIN_DEFAULT_PASSWORD: root
+      PGADMIN_CONFIG_SERVER_MODE: "False"
     ports:
       - "5050:80"
     networks:
       - app_network
-    volumes: 
+    volumes:
       - pgadmin:/var/lib/pgadmin
+      - ./servers.json:/pgadmin4/servers.json:ro
+      - ./config_local.py:/pgadmin4/config_local.py:ro
+
 
   zookeeper:
     image: confluentinc/cp-zookeeper:7.0.0
