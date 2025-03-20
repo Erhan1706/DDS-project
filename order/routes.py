@@ -123,7 +123,7 @@ def checkout(order_id: str):
     context = dict(order_id=order_id, items=items_quantities, user_id=order.user_id, total_cost=order.total_cost, saga_id=saga_id)
     orchestrator.start(event, context)
 
-    if not event.wait(timeout=10):  # Block until notified or timeout
+    if not event.wait(timeout=20):  # Block until notified or timeout
         app.logger.error("Checkout timed out. Saga id [", saga_id, "]")
         return Response("Checkout timed out", status=400)
     

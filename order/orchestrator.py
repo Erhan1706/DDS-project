@@ -19,10 +19,17 @@ class Step():
     def revert(self, context):
         self.compensation(context)
 
+class EventFinisher():
+    def __init__(self, action):
+        self.action = action
+
+    def run(self, context):
+        self.action(context)
 
 class Orchestrator():
 
-    def __init__(self, producer: KafkaProducer, steps: List[Step] = []):
+    def __init__(self, producer: KafkaProducer, steps: List[Step] = [], finishing_event: EventFinisher = None):
+        self.finishing_event = finishing_event
         self.steps: List[Step] = steps
         self.producer: KafkaProducer = producer
         self.pending_events: dict[str, Event] = {}
@@ -36,10 +43,6 @@ class Orchestrator():
             return entry
         except redis.exceptions.RedisError:
             raise ValueError(f"Saga: {saga_id} not found in Redis!")
-
-    def add_step(self, step_name, action, compensation):
-        step = Step(step_name, action, compensation)
-        self.steps.append(step)
 
     def get_next_step(self, step: int| None = None) -> int | None:
         return 0 if step == len(self.steps) - 1 else step + 1
@@ -89,6 +92,7 @@ class Orchestrator():
                 db.session.rollback()
                 return abort(400, DB_ERROR_STR)
             self.pending_events[saga_id].set()
+            self.finishing_event.run({"saga_id": saga_id})
                 
 
     def compensate(self, saga_id: str):
@@ -114,3 +118,8 @@ class Orchestrator():
                 print(f"Compensation error in {self.steps[current_step].name}: {e}")
         # Notify the main thread
         self.pending_events[saga_id].set()
+        self.finishing_event.run({"saga_id": saga_id})
+
+    def finish_event(self, saga_id: str):
+        if saga_id in self.pending_events:
+            self.pending_events[saga_id].set()
