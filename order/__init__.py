@@ -4,6 +4,7 @@ import atexit
 import redis
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
+from redis.client import PubSub
 
 
 #db: redis.Redis = redis.Redis(host=os.environ['REDIS_HOST'],
@@ -21,6 +22,7 @@ db: SQLAlchemy = SQLAlchemy()
 
 redis_pool = redis.ConnectionPool(host=os.environ['REDIS_HOST'], port=int(os.environ['REDIS_PORT']), password =os.environ['REDIS_PASSWORD'], db=int(os.environ['REDIS_DB']), decode_responses=True)
 redis_db: redis.Redis = redis.Redis(connection_pool=redis_pool)
+pubsub: PubSub = redis_db.pubsub()
 
 def create_app():
     app = Flask("order-service")
@@ -39,6 +41,7 @@ def create_app():
     @app.teardown_appcontext
     def close_db_connection(exception=None):
         db.session.remove()
+        pubsub.close()
         redis_db.close()
 
     

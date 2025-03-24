@@ -3,7 +3,7 @@ import json
 from models import OrderState
 from flask import abort, current_app as app
 from __init__ import db, DB_ERROR_STR, REQ_ERROR_STR
-from orchestrator import Orchestrator, Step, EventFinisher
+from orchestrator import Orchestrator, Step
 
 
 producer = KafkaProducer(
@@ -61,18 +61,6 @@ def handle_stock_message(data: dict, topic: str):
         app.logger.error(f"Error in getting order state: {e}")
         return
 
-def handle_finished_event_message(data: dict):
-    saga_id = data.get("saga_id")
-    if not saga_id:
-        app.logger.error("No saga_id in message")
-        return
-    app.logger.info(f"Consumed finish event message: {data}")
-    try:
-        orchestrator.finish_event(saga_id)
-    except Exception as e:
-        app.logger.error(f"Error in finishing event: {e}")
-        return
-
 def start_payment_listener(app):
     with app.app_context():
         consumer = KafkaConsumer(
@@ -86,18 +74,6 @@ def start_payment_listener(app):
         for message in consumer:
             handle_stock_message(message.value, message.topic)
 
-def start_event_finished_listener(app):
-    with app.app_context():
-        consumer = KafkaConsumer(
-            'event_finished',
-            bootstrap_servers='kafka:9092',
-            auto_offset_reset='latest',
-            value_deserializer=lambda x: json.loads(x.decode('utf-8'))
-        )
-        for message in consumer:
-            handle_finished_event_message(message.value, message.topic)
-
 stock_step = Step("verify_stock", send_stock_event, send_stock_rollback)
 payment_step = Step("verify_payment", send_payment_event, send_payment_rollback)
-finishing_step = EventFinisher(send_finished_event)
-orchestrator = Orchestrator(producer, steps=[stock_step, payment_step], finishing_event = finishing_step)
+orchestrator = Orchestrator(producer, steps=[stock_step, payment_step])

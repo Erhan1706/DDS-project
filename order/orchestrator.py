@@ -7,10 +7,10 @@ from threading import Event
 from sqlalchemy.exc import OperationalError
 
 from models import OrderState
-from __init__ import db, DB_ERROR_STR, redis_db
+from __init__ import db, DB_ERROR_STR, redis_db, pubsub
 from flask import abort, current_app as app
 
-MAX_RETRIES = 3
+MAX_RETRIES = 10
 
 class Step():
     def __init__(self, name, action, compensation):
@@ -24,17 +24,9 @@ class Step():
     def revert(self, context):
         self.compensation(context)
 
-class EventFinisher():
-    def __init__(self, action):
-        self.action = action
-
-    def run(self, context):
-        self.action(context)
-
 class Orchestrator():
 
-    def __init__(self, producer: KafkaProducer, steps: List[Step] = [], finishing_event: EventFinisher = None):
-        self.finishing_event = finishing_event
+    def __init__(self, producer: KafkaProducer, steps: List[Step] = []):
         self.steps: List[Step] = steps
         self.producer: KafkaProducer = producer
         self.pending_events: dict[str, Event] = {}
@@ -50,7 +42,7 @@ class Orchestrator():
             raise ValueError(f"Saga: {saga_id} not found in Redis!")
 
     def get_next_step(self, step: int| None = None) -> int | None:
-        return 0 if step == len(self.steps) - 1 else step + 1
+        return None if step == len(self.steps) - 1 else step + 1
             
     def start(self, event: Event, context: dict):
         saga_id = context["saga_id"]
@@ -102,11 +94,11 @@ class Orchestrator():
             else:
                 app.logger.error(f"Failed to change order state to completed {saga_id}")
                 return abort(400, DB_ERROR_STR)
-            if saga_id in self.pending_events:
-                self.pending_events[saga_id].set()
-            else:
-                self.finishing_event.run({"saga_id": saga_id})
-                
+            redis_db.publish(f"event_finished: {saga_id}", json.dumps({"saga_id": saga_id}))
+            #if saga_id in self.pending_events:
+            #    self.pending_events[saga_id].set()
+            #else:
+            #    self.finishing_event.run({"saga_id": saga_id})                
 
     def compensate(self, saga_id: str):
         orderStatus = OrderState.query.filter_by(saga_id=saga_id).first()
@@ -135,11 +127,7 @@ class Orchestrator():
               current_step -= 1
             except Exception as e:
                 app.logger.error(f"Compensation error in {self.steps[current_step].name}: {e}")
-        # Notify the main thread
-        if saga_id in self.pending_events:
-            self.pending_events[saga_id].set()
-        else:
-            self.finishing_event.run({"saga_id": saga_id})
+        redis_db.publish(f"event_finished: {saga_id}", json.dumps({"saga_id": saga_id}))
 
     def finish_event(self, saga_id: str):
         if saga_id in self.pending_events:
