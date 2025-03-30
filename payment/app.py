@@ -19,7 +19,7 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.exc import OperationalError
 
 DB_ERROR_STR = "DB error"
-MAX_RETRIES = 3
+MAX_RETRIES = 10
 
 
 app = Flask("payment-service")
@@ -52,19 +52,34 @@ def start_payment_action_consumer():
     )
     with app.app_context():
         for message in consumer:
-            app.logger.info(f"Payment message consumed for {message.value['saga_id']}")
-            try:
-                payment_trans(message.value['user_id'], message.value['total_cost'])
-                producer.send('payment_details_success', value={"saga_id": message.value['saga_id']})
-            except Exception as e:
-                db.session.rollback()
-                app.logger.error(f"Error updating payment: {e}")
-                producer.send('payment_details_failure', value={"saga_id": message.value['saga_id'], "reason": str(e)})
+            #app.logger.info(f"Payment message consumed for {message.value['saga_id']}")
+            retries = 0
+            while retries < MAX_RETRIES:
+                try:
+                    # Atomic transaction block to make whole cart update a single transaction
+                    db.session.begin()
+                    payment_trans(message.value['user_id'], message.value['total_cost']) 
+                    db.session.commit()
+                    app.logger.info(f"Payment for {message.value['saga_id']} successful")
+                    producer.send('payment_details_success', value={"saga_id": message.value['saga_id']})
+                    break
+                except ValueError as e: # No point in retrying if user has insufficient funds
+                    db.session.rollback()
+                    producer.send('payment_details_failure', value={"saga_id": message.value['saga_id']})
+                    app.logger.error(f"Error updating payment for {message.value['saga_id']} due to insufficient funds")
+                    break
+                except OperationalError as e:
+                    db.session.rollback()
+                    app.logger.error(f"Error updating payment: {e}, current retries: {retries}")
+                    retries += 1
+            else:
+                app.logger.error(f"Failed to update payment for {message.value['saga_id']}")
+                producer.send('payment_details_failure', value={"saga_id": message.value['saga_id']})
             producer.flush()
-
+            
 def start_payment_compensation_consumer():
     consumer = KafkaConsumer(
-        'compensate_payment_details',
+        'compensate_payment_details',   
         group_id='payment_compensation_listener',
         bootstrap_servers='kafka:9092',
         auto_offset_reset='latest',
@@ -72,29 +87,33 @@ def start_payment_compensation_consumer():
     )
     with app.app_context():
         for message in consumer:
-            app.logger.info(f"Payment compensation message consumed for {message.value['saga_id']}")
-            try:
-                return_payment_trans(message.value['user_id'], message.value['total_cost'])
-            except Exception as e:
-                db.session.rollback()
-                app.logger.error(f"Error updating stock: {e}")
+            retries = 0
+            while retries < MAX_RETRIES:
+                try:
+                    # Atomic transaction block to make whole cart update a single transaction
+                    db.session.begin()
+                    return_payment_trans(message.value['user_id'], message.value['total_cost']) 
+                    db.session.commit()
+                    break
+                except OperationalError as e:
+                    db.session.rollback()
+                    app.logger.error(f"Error compensating payment: {e}, current retries: {retries}")
+                    retries += 1
+            else:
+                app.logger.error(f"Failed to compensate payment for {message.value['saga_id']}")
             producer.flush()
 
 def payment_trans(user_id: str, amount: int):
-    db.session.begin()
     user = get_user_from_db(user_id)
     user.credit -= int(amount)
     if user.credit < 0:
         raise ValueError(f"User: {user_id} credit cannot get reduced below zero!")
     db.session.add(user)
-    db.session.commit()
 
 def return_payment_trans(user_id: str, amount: int):
-    db.session.begin()
     user = get_user_from_db(user_id)
     user.credit += int(amount)
     db.session.add(user)
-    db.session.commit()
 
 # Start consumer in a separate thread
 threading.Thread(target=start_payment_action_consumer, daemon=True).start()

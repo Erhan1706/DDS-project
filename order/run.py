@@ -1,6 +1,6 @@
 from __init__ import create_app
 import logging
-from kafka_utils import start_stock_listener, start_payment_listener, start_event_finished_listener
+from kafka_utils import start_stock_listener, start_payment_listener
 import threading
 
 app = create_app()
@@ -12,7 +12,6 @@ app = create_app()
 
 threading.Thread(target=start_stock_listener, args=(app,), daemon=True).start()
 threading.Thread(target=start_payment_listener, args=(app,), daemon=True).start()
-threading.Thread(target=start_event_finished_listener, args=(app,), daemon=True).start()
 
 if __name__ == '__main__':
     #import uvicorn

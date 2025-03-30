@@ -3,16 +3,14 @@ import uuid
 from collections import defaultdict
 import requests
 
-from flask import Flask, jsonify, abort, Response, Blueprint, current_app as app 
+from flask import jsonify, abort, Response, Blueprint, current_app as app 
 from sqlalchemy.exc import OperationalError
 from threading import Event
 from models import Order, OrderState, OrderValue
-from __init__ import db, DB_ERROR_STR, REQ_ERROR_STR, GATEWAY_URL
+from __init__ import db, DB_ERROR_STR, REQ_ERROR_STR, GATEWAY_URL, pubsub
 from kafka_utils import orchestrator
-#from asgiref.wsgi import WsgiToAsgi
 
-MAX_RETRIES = 3
-#asgi_app = WsgiToAsgi(app) 
+MAX_RETRIES = 10
 
 order_bp = Blueprint('order_bp', __name__)
 
@@ -26,11 +24,17 @@ def get_order_from_db(order_id: str) -> OrderValue | None:
 @order_bp.post('/create/<user_id>')
 def create_order(user_id: str):
     order = Order(user_id=user_id)
-    try:
-        db.session.add(order)
-        db.session.commit()
-    except Exception:
-        db.session.rollback()
+    retries = 0
+    while retries < MAX_RETRIES:
+        try:
+            db.session.add(order)
+            db.session.commit()
+            break
+        except OperationalError:
+            db.session.rollback()
+            retries += 1
+    else:
+        app.logger.error("Failed to add item")
         return abort(400, DB_ERROR_STR)
     return jsonify({'order_id': str(order.id)})
 
@@ -80,17 +84,17 @@ def send_get_request(url: str):
 
 @order_bp.post('/addItem/<order_id>/<item_id>/<quantity>')
 def add_item(order_id: str, item_id: str, quantity: int):
-    order: Order = get_order_from_db(order_id)
     item_reply = send_get_request(f"{GATEWAY_URL}/stock/find/{item_id}")
     if item_reply.status_code != 200:
         # Request failed because item does not exist
         abort(400, f"Item: {item_id} does not exist!")
     item_json: dict = item_reply.json()
-    order.items[item_id] = int(quantity)
-    order.total_cost += int(quantity) * item_json["price"]
     retries = 0
     while retries < MAX_RETRIES:
         try:
+            order: Order = get_order_from_db(order_id)
+            order.items[item_id] = int(quantity)
+            order.total_cost += int(quantity) * item_json["price"]
             db.session.add(order)
             db.session.commit()
             break
@@ -100,7 +104,7 @@ def add_item(order_id: str, item_id: str, quantity: int):
     else:
         app.logger.error("Failed to add item")
         return abort(400, DB_ERROR_STR)
-
+    
     return Response(f"Item: {item_id} added to: {order_id} price updated to: {order.total_cost}",
                     status=200)
 
@@ -123,26 +127,31 @@ def checkout(order_id: str):
     context = dict(order_id=order_id, items=items_quantities, user_id=order.user_id, total_cost=order.total_cost, saga_id=saga_id)
     orchestrator.start(event, context)
 
-    if not event.wait(timeout=20):  # Block until notified or timeout
-        app.logger.error("Checkout timed out. Saga id [" + saga_id + "]")
-        return Response("Checkout timed out", status=400)
-    
-    order_status = OrderState.query.filter_by(saga_id=saga_id).first()
-    if order_status.state != "COMPLETED":
-        app.logger.error("Failed to checkout")
-        return abort(400, DB_ERROR_STR)
-    order.paid = True
-    retries = 0
-    while retries < MAX_RETRIES:
-        try:
-            db.session.add(order)
-            db.session.commit()
-            break
-        except OperationalError:
-            db.session.rollback()
-            retries += 1
-    else:
-        app.logger.error("Failed to commit order to database")
-        return abort(400, DB_ERROR_STR)
-    app.logger.info("Checkout successful")
+    pubsub.subscribe(f"event_finished: {saga_id}")
+
+    for message in pubsub.listen():
+        #app.logger.info(message)
+        if message["type"] != "message":
+            continue
+        order_status = OrderState.query.filter_by(saga_id=saga_id).first()
+        if order_status.state != "COMPLETED":
+            app.logger.error(f"Failed to checkout for {saga_id}")
+            return abort(400, DB_ERROR_STR)
+        order.paid = True
+        retries = 0
+        while retries < MAX_RETRIES:
+            try:
+                db.session.add(order)
+                db.session.commit()
+                break
+            except OperationalError:
+                db.session.rollback()
+                retries += 1
+        else:
+            app.logger.error("Failed to commit order to database")
+            return abort(400, DB_ERROR_STR)
+        break # break out of the loop if the order is completed
+
+    pubsub.unsubscribe(f"event_finished: {saga_id}")
+    app.logger.info(f"Checkout successful for {saga_id}")
     return Response("Checkout successful", status=200)

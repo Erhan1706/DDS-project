@@ -13,7 +13,7 @@ from msgspec import Struct, msgpack
 
 
 DB_ERROR_STR = "DB error"
-MAX_RETRIES = 3
+MAX_RETRIES = 10
 
 app = Flask("stock-service")
 
@@ -50,19 +50,29 @@ def start_stock_action_consumer():
     )
     with app.app_context():
         for message in consumer:
-            app.logger.info(f"Stock message consumed for {message.value['saga_id']}")
-            try:
-                # Atomic transaction block to make whole cart update a single transaction
-                db.session.begin()
-                for item_id, amount in message.value["items"].items():
-                    remove_stock_trans(item_id, amount) 
-                db.session.commit()
-                producer.send('stock_details_success', value={"saga_id": message.value['saga_id']})
-            except Exception as e:
-                db.session.rollback()
-                app.logger.error(f"Error updating stock: {e}")
-                producer.send('stock_details_failure', value={"saga_id": message.value['saga_id'], "reason": str(e)})
-
+            #app.logger.info(f"Stock message consumed for {message.value['saga_id']}")
+            retries = 0
+            while retries < MAX_RETRIES:
+                try:
+                    # Atomic transaction block to make whole cart update a single transaction
+                    db.session.begin()
+                    for item_id, amount in message.value["items"].items():
+                        remove_stock_trans(item_id, amount) 
+                    db.session.commit()
+                    producer.send('stock_details_success', value={"saga_id": message.value['saga_id']})
+                    app.logger.info(f"Stock for {message.value['saga_id']} successful")
+                    break
+                except ValueError as e: # No point in retrying if stock goes below zero
+                    db.session.rollback()
+                    producer.send('stock_details_failure', value={"saga_id": message.value['saga_id']})
+                    app.logger.error(f"Error updating stock for {message.value['saga_id']} insufficient stock")
+                    break
+                except OperationalError as e:
+                    db.session.rollback()
+                    app.logger.error(f"Error updating stock: {e}, current retries: {retries}")
+                    retries += 1
+            else:
+                producer.send('stock_details_failure', value={"saga_id": message.value['saga_id']})
             producer.flush()
 
 def remove_stock_trans(item_id: str, amount: int):
@@ -83,16 +93,21 @@ def start_stock_compensation_consumer():
     with app.app_context():
         for message in consumer:
             #app.logger.info(f"Stock message consumed for {message.value['saga_id']}")
-            try:
-                # Atomic transaction block to make whole cart update a single transaction
-                with db.session.begin():
+            retries = 0
+            while retries < MAX_RETRIES:
+                try:
+                    # Atomic transaction block to make whole cart update a single transaction
+                    db.session.begin()
                     for item_id, amount in message.value["items"].items():
                         add_stock_trans(item_id, amount) 
-                #producer.send('stock_details_success', value=message.value)
-            except Exception as e:
-                db.session.rollback()
-                app.logger.error(f"Error updating stock: {e}")
-                #producer.send('stock_details_failure', value={"saga_id": message.value['saga_id'], "reason": str(e)})
+                    db.session.commit()
+                    break
+                except OperationalError as e:
+                    db.session.rollback()
+                    app.logger.error(f"Error compensating stock: {e}, current retries: {retries}")
+                    retries += 1
+            else:
+                app.logger.error("Failed to compensate stock")
             producer.flush()
 
 def add_stock_trans(item_id: str, amount: int):
