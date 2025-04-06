@@ -53,18 +53,31 @@ def start_payment_action_consumer():
     with app.app_context():
         for message in consumer:
             #app.logger.info(f"Payment message consumed for {message.value['saga_id']}")
+            saga_id = message.value['saga_id']
+            with db.session.begin():
+                val = ProcessedTransaction.query.get(saga_id)
+                if val is not None:
+                    app.logger.warning(f"Payment action already processed: {saga_id}")
+                    continue
+
             retries = 0
             while retries < MAX_RETRIES:
                 try:
                     # Atomic transaction block to make whole cart update a single transaction
                     db.session.begin()
-                    payment_trans(message.value['user_id'], message.value['total_cost']) 
+                    payment_trans(message.value['user_id'], message.value['total_cost'])
+                    transaction = ProcessedTransaction(saga_id=saga_id)
+                    db.session.add(transaction)
                     db.session.commit()
                     app.logger.info(f"Payment for {message.value['saga_id']} successful")
                     producer.send('payment_details_success', value={"saga_id": message.value['saga_id']})
                     break
                 except ValueError as e: # No point in retrying if user has insufficient funds
                     db.session.rollback()
+                    db.session.begin()
+                    transaction = ProcessedTransaction(saga_id=saga_id)
+                    db.session.add(transaction)
+                    db.session.commit()
                     producer.send('payment_details_failure', value={"saga_id": message.value['saga_id']})
                     app.logger.error(f"Error updating payment for {message.value['saga_id']} due to insufficient funds")
                     break
@@ -86,13 +99,22 @@ def start_payment_compensation_consumer():
         value_deserializer=lambda x: json.loads(x.decode('utf-8'))
     )
     with app.app_context():
+
         for message in consumer:
+            saga_id = message.value['saga_id']
+            with db.session.begin():
+                val = RevertedTransaction.query.get(saga_id)
+                if val is not None:
+                    app.logger.warning(f"Payment action already reverted: {saga_id}")
+                    continue
             retries = 0
             while retries < MAX_RETRIES:
                 try:
                     # Atomic transaction block to make whole cart update a single transaction
                     db.session.begin()
-                    return_payment_trans(message.value['user_id'], message.value['total_cost']) 
+                    return_payment_trans(message.value['user_id'], message.value['total_cost'])
+                    transaction = RevertedTransaction(saga_id=saga_id)
+                    db.session.add(transaction)
                     db.session.commit()
                     break
                 except OperationalError as e:
@@ -118,6 +140,15 @@ def return_payment_trans(user_id: str, amount: int):
 # Start consumer in a separate thread
 threading.Thread(target=start_payment_action_consumer, daemon=True).start()
 threading.Thread(target=start_payment_compensation_consumer, daemon=True).start()
+
+class ProcessedTransaction(db.Model):
+    __tablename__ = 'processed_transactions'
+    saga_id = db.Column(db.String, primary_key=True)
+    status = db.Column(db.String)
+
+class RevertedTransaction(db.Model):
+    __tablename__ = 'reverted_transactions'
+    saga_id = db.Column(db.String, primary_key=True)
 
 class User(db.Model):
     __tablename__ = 'users'

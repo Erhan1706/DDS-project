@@ -51,19 +51,31 @@ def start_stock_action_consumer():
     with app.app_context():
         for message in consumer:
             #app.logger.info(f"Stock message consumed for {message.value['saga_id']}")
+            saga_id = message.value['saga_id']
+            with db.session.begin():
+                val = ProcessedTransaction.query.get(saga_id)
+                if val is not None:
+                    app.logger.warning(f"Payment action already processed: {saga_id}")
+                    continue
             retries = 0
             while retries < MAX_RETRIES:
                 try:
                     # Atomic transaction block to make whole cart update a single transaction
                     db.session.begin()
                     for item_id, amount in message.value["items"].items():
-                        remove_stock_trans(item_id, amount) 
+                        remove_stock_trans(item_id, amount)
+                    transaction = ProcessedTransaction(saga_id=saga_id)
+                    db.session.add(transaction)
                     db.session.commit()
                     producer.send('stock_details_success', value={"saga_id": message.value['saga_id']})
                     app.logger.info(f"Stock for {message.value['saga_id']} successful")
                     break
                 except ValueError as e: # No point in retrying if stock goes below zero
                     db.session.rollback()
+                    db.session.begin()
+                    transaction = ProcessedTransaction(saga_id=saga_id)
+                    db.session.add(transaction)
+                    db.session.commit()
                     producer.send('stock_details_failure', value={"saga_id": message.value['saga_id']})
                     app.logger.error(f"Error updating stock for {message.value['saga_id']} insufficient stock")
                     break
@@ -93,13 +105,21 @@ def start_stock_compensation_consumer():
     with app.app_context():
         for message in consumer:
             #app.logger.info(f"Stock message consumed for {message.value['saga_id']}")
+            saga_id = message.value['saga_id']
+            with db.session.begin():
+                val = RevertedTransaction.query.get(saga_id)
+                if val is not None:
+                    app.logger.warning(f"Payment action already reverted: {saga_id}")
+                    continue
             retries = 0
             while retries < MAX_RETRIES:
                 try:
                     # Atomic transaction block to make whole cart update a single transaction
                     db.session.begin()
                     for item_id, amount in message.value["items"].items():
-                        add_stock_trans(item_id, amount) 
+                        add_stock_trans(item_id, amount)
+                    transaction = RevertedTransaction(saga_id=saga_id)
+                    db.session.add(transaction)
                     db.session.commit()
                     break
                 except OperationalError as e:
@@ -113,7 +133,16 @@ def start_stock_compensation_consumer():
 def add_stock_trans(item_id: str, amount: int):
     item = get_item_from_db(item_id)
     item.stock += int(amount)
-    db.session.add(item) 
+    db.session.add(item)
+
+class ProcessedTransaction(db.Model):
+    __tablename__ = 'processed_transactions'
+    saga_id = db.Column(db.String, primary_key=True)
+    status = db.Column(db.String)
+
+class RevertedTransaction(db.Model):
+    __tablename__ = 'reverted_transactions'
+    saga_id = db.Column(db.String, primary_key=True)
 
 
 class Stock(db.Model):

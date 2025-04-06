@@ -58,7 +58,7 @@ def handle_stock_message(data: dict, topic: str):
     try: 
         orchestrator.process_step(topic, saga_id)
     except Exception as e:
-        app.logger.error(f"Error in getting order state: {e}")
+        app.logger.error(f"Error in getting order state: {e} for data: {data}, topic: {topic}")
         return
 
 def start_payment_listener(app):
