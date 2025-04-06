@@ -21,6 +21,17 @@ def get_order_from_db(order_id: str) -> OrderValue | None:
         abort(400, f"Order: {order_id} not found!")
     return order
 
+def get_order_state(order_id: str) -> OrderState | None:
+    retries = 0
+    while retries < MAX_RETRIES:
+        try:
+            order_state: OrderState = OrderState.query.filter_by(order_id=order_id).first()
+            break
+        except OperationalError:
+            db.session.rollback()
+            retries += 1
+    return order_state
+
 @order_bp.post('/create/<user_id>')
 def create_order(user_id: str):
     order = Order(user_id=user_id)
@@ -116,18 +127,28 @@ def rollback_stock(removed_items: list[tuple[str, int]]):
 
 @order_bp.post('/checkout/<order_id>')
 def checkout(order_id: str):
-    order: Order = get_order_from_db(order_id)
-    # get the quantity per item
-    items_quantities: dict[str, int] = defaultdict(int)
-    for item_id, quantity in order.items.items():
-        items_quantities[item_id] += quantity
+    order_state = get_order_state(order_id)
+    if order_state is not None:
+        if order_state.state == "COMPLETED":
+            return Response("Checkout successful", status=200)
+        if order_state.state == "FAILED":
+            return abort(400, "Order has failed already")
+        else:
+            app.logger.info(f"Subscribing for already existing order: {order_id}")
+            pubsub.subscribe(f"event_finished: {order_state.saga_id}")
+    else:
+        order: Order = get_order_from_db(order_id)
+        # get the quantity per item
+        items_quantities: dict[str, int] = defaultdict(int)
+        for item_id, quantity in order.items.items():
+            items_quantities[item_id] += quantity
 
-    saga_id = str(uuid.uuid4())
-    event = Event()
-    context = dict(order_id=order_id, items=items_quantities, user_id=order.user_id, total_cost=order.total_cost, saga_id=saga_id)
-    orchestrator.start(event, context)
+        saga_id = str(uuid.uuid4())
+        event = Event()
+        context = dict(order_id=order_id, items=items_quantities, user_id=order.user_id, total_cost=order.total_cost, saga_id=saga_id)
+        orchestrator.start(event, context)
 
-    pubsub.subscribe(f"event_finished: {saga_id}")
+        pubsub.subscribe(f"event_finished: {saga_id}")
 
     for message in pubsub.listen():
         #app.logger.info(message)
@@ -136,6 +157,15 @@ def checkout(order_id: str):
         order_status = OrderState.query.filter_by(saga_id=saga_id).first()
         if order_status.state != "COMPLETED":
             app.logger.error(f"Failed to checkout for {saga_id}")
+            order_status.state = "FAILED"
+            retries = 0
+            while retries < MAX_RETRIES:
+                try:
+                    db.session.add(order_status)
+                    db.session.commit()
+                except OperationalError:
+                    db.session.rollback()
+                    retries += 1
             return abort(400, DB_ERROR_STR)
         order.paid = True
         retries = 0

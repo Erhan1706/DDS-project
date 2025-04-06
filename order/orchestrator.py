@@ -58,11 +58,16 @@ class Orchestrator():
         })
         # Put current order in PENDING state
         orderStatus: OrderState = OrderState(saga_id=saga_id, order_id=context["order_id"], state="PENDING")
-        try: 
-            db.session.add(orderStatus)
-            db.session.commit()
-        except Exception:
-            db.session.rollback()
+
+        retries = 0
+        while retries < MAX_RETRIES:
+            try:
+                db.session.add(orderStatus)
+                db.session.commit()
+                break
+            except OperationalError:
+                db.session.rollback()
+                retries += 1
 
         self.steps[0].run(context)
         self.pending_events[saga_id] = event
@@ -80,7 +85,14 @@ class Orchestrator():
             self.steps[current_step].run(saga["context"])
         else:
             # Update order state to COMPLETED and notify the main thread
-            orderStatus = OrderState.query.filter_by(saga_id=saga_id).first()
+            retries = 0
+            while retries < MAX_RETRIES:
+                try:
+                    orderStatus = OrderState.query.filter_by(saga_id=saga_id).first()
+                    break
+                except OperationalError:
+                    db.session.rollback()
+                    retries += 1
             orderStatus.state = "COMPLETED"
             retries = 0
             while retries < MAX_RETRIES:
@@ -101,7 +113,14 @@ class Orchestrator():
             #    self.finishing_event.run({"saga_id": saga_id})                
 
     def compensate(self, saga_id: str):
-        orderStatus = OrderState.query.filter_by(saga_id=saga_id).first()
+        retries = 0
+        while retries < MAX_RETRIES:
+            try:
+                orderStatus = OrderState.query.filter_by(saga_id=saga_id).first()
+                break
+            except OperationalError:
+                db.session.rollback()
+                retries += 1
         if orderStatus is None:
             return abort(400, f"Order: {saga_id} not found!")
         orderStatus.state = "FAILED"
