@@ -200,16 +200,17 @@ def find_user(user_id: str):
 
 @app.post('/add_funds/<user_id>/<amount>')
 def add_credit(user_id: str, amount: int):
-    user_entry: User = get_user_from_db(user_id)
     # update credit, serialize and update database
-    user_entry.credit += int(amount)
     retries = 0
     while retries < MAX_RETRIES:
         try:
+            user_entry: User = get_user_from_db(user_id)
+            user_entry.credit += int(amount)
             db.session.add(user_entry)
             db.session.commit()
             break
         except OperationalError:
+            app.logger.error(f"Error adding credit to user: {user_id}, current retries: {retries}")
             db.session.rollback()
             retries += 1
     else:
@@ -220,12 +221,12 @@ def add_credit(user_id: str, amount: int):
 
 @app.post('/pay/<user_id>/<amount>')
 def remove_credit(user_id: str, amount: int):
-    user_entry: User = get_user_from_db(user_id)
     # update credit, serialize and update database
-    user_entry.credit -= int(amount)
     retries = 0
     while retries < MAX_RETRIES:
         try:
+            user_entry: User = get_user_from_db(user_id)
+            user_entry.credit -= int(amount)
             db.session.add(user_entry)
             db.session.commit()
             break
