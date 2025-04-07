@@ -200,11 +200,11 @@ def find_item(item_id: str):
 
 @app.post('/add/<item_id>/<amount>')
 def add_stock(item_id: str, amount: int):
-    item = get_item_from_db(item_id)
-    item.stock += int(amount)
     retries = 0
     while retries < MAX_RETRIES:
         try:
+            item = get_item_from_db(item_id)
+            item.stock += int(amount)
             db.session.add(item)
             db.session.commit()
             break
@@ -218,13 +218,13 @@ def add_stock(item_id: str, amount: int):
 
 @app.post('/subtract/<item_id>/<amount>')
 def remove_stock(item_id: str, amount: int):
-    item = get_item_from_db(item_id)
-    item.stock -= int(amount)
-    if item.stock < 0:
-        abort(400, f"Item: {item_id} stock cannot get reduced below zero!")
     retries = 0
     while retries < MAX_RETRIES:
         try:
+            item = get_item_from_db(item_id)
+            item.stock -= int(amount)
+            if item.stock < 0:
+                abort(400, f"Item: {item_id} stock cannot get reduced below zero!")
             db.session.add(item)
             db.session.commit()
             break

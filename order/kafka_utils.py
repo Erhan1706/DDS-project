@@ -54,7 +54,7 @@ def handle_stock_message(data: dict, topic: str):
     if not saga_id:
         app.logger.error("No saga_id in message")
         return
-    app.logger.info(f"Consumed message: {data}")
+    app.logger.info(f"Consumed message: {data} for {topic}")
     try: 
         orchestrator.process_step(topic, saga_id)
     except Exception as e:
