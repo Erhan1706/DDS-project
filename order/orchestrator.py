@@ -80,11 +80,11 @@ class Orchestrator():
             self.steps[current_step].run(saga["context"])
         else:
             # Update order state to COMPLETED and notify the main thread
-            orderStatus = OrderState.query.filter_by(saga_id=saga_id).first()
-            orderStatus.state = "COMPLETED"
             retries = 0
             while retries < MAX_RETRIES:
                 try:
+                    orderStatus = OrderState.query.filter_by(saga_id=saga_id).first()
+                    orderStatus.state = "COMPLETED"
                     db.session.add(orderStatus)
                     db.session.commit()
                     break
@@ -92,6 +92,8 @@ class Orchestrator():
                     db.session.rollback()
                     retries += 1
             else:
+                current_step = 2
+                self.compensate(saga_id)
                 app.logger.error(f"Failed to change order state to completed {saga_id}")
                 return abort(400, DB_ERROR_STR)
             redis_db.publish(f"event_finished: {saga_id}", json.dumps({"saga_id": saga_id}))
@@ -101,13 +103,13 @@ class Orchestrator():
             #    self.finishing_event.run({"saga_id": saga_id})                
 
     def compensate(self, saga_id: str):
-        orderStatus = OrderState.query.filter_by(saga_id=saga_id).first()
-        if orderStatus is None:
-            return abort(400, f"Order: {saga_id} not found!")
-        orderStatus.state = "FAILED"
         retries = 0
         while retries < MAX_RETRIES:
             try:
+                orderStatus = OrderState.query.filter_by(saga_id=saga_id).first()
+                if orderStatus is None:
+                    return abort(400, f"Order: {saga_id} not found!")
+                orderStatus.state = "FAILED"
                 db.session.add(orderStatus)
                 db.session.commit()
                 break
