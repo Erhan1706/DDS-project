@@ -6,10 +6,11 @@ import threading
 
 from flask import Flask, jsonify, abort, Response, request
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.exc import OperationalError
+from sqlalchemy import update
 from kafka import KafkaProducer, KafkaConsumer
 from msgspec import Struct, msgpack
+from psycopg2 import errors
 
 
 DB_ERROR_STR = "DB error"
@@ -57,6 +58,7 @@ def start_stock_action_consumer():
                 if val is not None:
                     app.logger.warning(f"Payment action already processed: {saga_id}")
                     continue
+
             retries = 0
             while retries < MAX_RETRIES:
                 try:
@@ -77,22 +79,36 @@ def start_stock_action_consumer():
                     db.session.add(transaction)
                     db.session.commit()
                     producer.send('stock_details_failure', value={"saga_id": message.value['saga_id']})
-                    app.logger.error(f"Error updating stock for {message.value['saga_id']} insufficient stock")
-                    break
-                except OperationalError as e:
+                    app.logger.error(f"Error updating stock for {message.value['saga_id']}: insufficient stock")
+                    break  # No point retrying
+
+                except (OperationalError, errors.SerializationFailure) as e:
                     db.session.rollback()
-                    app.logger.error(f"Error updating stock: {e}, current retries: {retries}")
+                    app.logger.error(f"Retryable error updating stock: {e}, current retries: {retries}")
                     retries += 1
+
+                except Exception as e:
+                    db.session.rollback()
+                    app.logger.error(f"Unexpected error updating stock: {e}")
+                    raise
+
             else:
+                app.logger.error(f"Max retries reached for stock update: {saga_id}")
                 producer.send('stock_details_failure', value={"saga_id": message.value['saga_id']})
             producer.flush()
 
+
 def remove_stock_trans(item_id: str, amount: int):
-    item = get_item_from_db(item_id)
-    item.stock -= int(amount)
-    if item.stock < 0:
+    result = db.session.execute(
+        update(Stock)
+        .where(Stock.id == item_id)
+        .where(Stock.stock >= amount)  # Ensure no negative stock
+        .values(stock=Stock.stock - amount)
+    )
+
+    if result.rowcount == 0:
         raise ValueError(f"Item: {item_id} stock cannot get reduced below zero!")
-    db.session.add(item) 
+
 
 def start_stock_compensation_consumer():
     consumer = KafkaConsumer(
@@ -111,6 +127,7 @@ def start_stock_compensation_consumer():
                 if val is not None:
                     app.logger.warning(f"Payment action already reverted: {saga_id}")
                     continue
+
             retries = 0
             while retries < MAX_RETRIES:
                 try:
@@ -124,16 +141,28 @@ def start_stock_compensation_consumer():
                     break
                 except OperationalError as e:
                     db.session.rollback()
-                    app.logger.error(f"Error compensating stock: {e}, current retries: {retries}")
+                    app.logger.error(f"Retryable error compensating stock: {e}, current retries: {retries}")
                     retries += 1
+
+                except Exception as e:
+                    db.session.rollback()
+                    app.logger.error(f"Unexpected error compensating stock: {e}")
+                    raise
+
             else:
-                app.logger.error("Failed to compensate stock")
+                app.logger.error(f"Max retries reached for stock compensation: {saga_id}")
             producer.flush()
 
 def add_stock_trans(item_id: str, amount: int):
-    item = get_item_from_db(item_id)
-    item.stock += int(amount)
-    db.session.add(item)
+    result = db.session.execute(
+        update(Stock)
+        .where(Stock.id == item_id)
+        .values(stock=Stock.stock + amount)
+    )
+
+    if result.rowcount == 0:
+        raise ValueError(f"Item: {item_id} not found!")
+
 
 class ProcessedTransaction(db.Model):
     __tablename__ = 'processed_transactions'
