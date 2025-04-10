@@ -30,6 +30,14 @@ class OrderState(db.Model):
     order_id = db.Column(db.String, db.ForeignKey('orders.id'), nullable=False)
     state = db.Column(db.String(50), nullable=False)
 
+
+class ProcessedStock(db.Model):
+    saga_id = db.Column(db.String, primary_key=True)
+
+class ProcessedPayment(db.Model):
+    saga_id = db.Column(db.String, primary_key=True)
+
+
 # Old models
 class OrderValue(Struct):
     paid: bool
