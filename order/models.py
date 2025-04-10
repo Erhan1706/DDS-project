@@ -21,14 +21,22 @@ class Order(db.Model):
             "user_id": self.user_id,
             "total_cost": self.total_cost
         }
-    
+
 class OrderState(db.Model):
     __tablename__ = "order_states"
 
-    id = db.Column(db.String(), primary_key=True, default = lambda: str(uuid.uuid4()))
-    saga_id = db.Column(db.String(), nullable=False, default = lambda: str(uuid.uuid4()))
+    # id = db.Column(db.String(), primary_key=True, default = lambda: str(uuid.uuid4()))
+    saga_id = db.Column(db.String(), primary_key=True, default = lambda: str(uuid.uuid4()))
     order_id = db.Column(db.String, db.ForeignKey('orders.id'), nullable=False)
     state = db.Column(db.String(50), nullable=False)
+
+
+class ProcessedStock(db.Model):
+    saga_id = db.Column(db.String, primary_key=True)
+
+class ProcessedPayment(db.Model):
+    saga_id = db.Column(db.String, primary_key=True)
+
 
 # Old models
 class OrderValue(Struct):

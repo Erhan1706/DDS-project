@@ -43,6 +43,33 @@ services:
       update_config:
         parallelism: 1
         delay: 5s
+#    volumes:
+#      - ./order/orchestrator.py:/home/flask-app/orchestrator.py # reload changes for development
+#      - ./order/routes.py:/home/flask-app/routes.py
+#      - ./order/kafka_utils.py:/home/flask-app/kafka_utils.py
+#    command: bash ./wait-for-kafka.sh
+#
+#
+#  order-service-2:
+#    build: ./order
+#    image: order:latest
+#    environment:
+#      - GATEWAY_URL=http://gateway:80
+#    ports:
+#      - "9002:5000"
+#      - "5679:5679"
+#    env_file:
+#      - env/order_redis.env
+#    depends_on:
+#      - order-postgres
+#      - kafka
+#    networks:
+#      - app_network
+#    volumes:
+#      - ./order/orchestrator.py:/home/flask-app/orchestrator.py
+#      - ./order/routes.py:/home/flask-app/routes.py
+#      - ./order/kafka_utils.py:/home/flask-app/kafka_utils.py
+#    command: bash ./start-for-replica-container.sh
 
   order-redis:
     image: redis:7.2-bookworm
