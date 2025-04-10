@@ -89,14 +89,7 @@ class Orchestrator():
             while retries < MAX_RETRIES:
                 try:
                     orderStatus = OrderState.query.filter_by(saga_id=saga_id).first()
-                    break
-                except OperationalError:
-                    db.session.rollback()
-                    retries += 1
-            orderStatus.state = "COMPLETED"
-            retries = 0
-            while retries < MAX_RETRIES:
-                try:
+                    orderStatus.state = "COMPLETED"
                     db.session.add(orderStatus)
                     db.session.commit()
                     break
@@ -104,6 +97,10 @@ class Orchestrator():
                     db.session.rollback()
                     retries += 1
             else:
+                saga = self.get_saga(saga_id)
+                saga["current_step"] = 2
+                self.add_saga(saga_id, saga)
+                self.compensate(saga_id)
                 app.logger.error(f"Failed to change order state to completed {saga_id}")
                 return abort(400, DB_ERROR_STR)
             redis_db.publish(f"event_finished: {saga_id}", json.dumps({"saga_id": saga_id}))
@@ -117,16 +114,9 @@ class Orchestrator():
         while retries < MAX_RETRIES:
             try:
                 orderStatus = OrderState.query.filter_by(saga_id=saga_id).first()
-                break
-            except OperationalError:
-                db.session.rollback()
-                retries += 1
-        if orderStatus is None:
-            return abort(400, f"Order: {saga_id} not found!")
-        orderStatus.state = "FAILED"
-        retries = 0
-        while retries < MAX_RETRIES:
-            try:
+                if orderStatus is None:
+                    return abort(400, f"Order: {saga_id} not found!")
+                orderStatus.state = "FAILED"
                 db.session.add(orderStatus)
                 db.session.commit()
                 break
