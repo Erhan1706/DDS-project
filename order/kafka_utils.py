@@ -1,10 +1,14 @@
 from kafka import KafkaProducer, KafkaConsumer
 import json
-from models import OrderState
+
+from sqlalchemy.exc import OperationalError
+
+from models import ProcessedPayment, ProcessedStock
 from flask import abort, current_app as app
 from __init__ import db, DB_ERROR_STR, REQ_ERROR_STR
 from orchestrator import Orchestrator, Step
 
+MAX_RETRIES = 10
 
 producer = KafkaProducer(
     bootstrap_servers='kafka:9092',
@@ -31,10 +35,10 @@ def send_payment_event(data: dict):
     producer.flush()
     app.logger.info(f"Sent payment event for {data["saga_id"]}")
 
-def send_finished_event(data: dict):
-    producer.send('event_finished', value=dict(saga_id=data["saga_id"]))
-    producer.flush()
-    app.logger.info(f"Sent event finished for {data["saga_id"]}")
+# def send_finished_event(data: dict):
+#     producer.send('event_finished', value=dict(saga_id=data["saga_id"]))
+#     producer.flush()
+#     app.logger.info(f"Sent event finished for {data["saga_id"]}")
 
 def start_stock_listener(app):
     with app.app_context():
@@ -51,12 +55,52 @@ def start_stock_listener(app):
 
 def handle_stock_message(data: dict, topic: str):
     saga_id = data.get("saga_id")
+    if topic == 'stock_details_success' or topic == 'stock_details_failure':
+        with db.session.begin():
+            val = ProcessedStock.query.get(saga_id)
+            if val is not None:
+                app.logger.warning(f"Stock action already processed: {saga_id}")
+                return
+    else:
+        with db.session.begin():
+            val = ProcessedPayment.query.get(saga_id)
+            if val is not None:
+                app.logger.warning(f"Stock action already processed: {saga_id}")
+                return
     if not saga_id:
         app.logger.error("No saga_id in message")
         return
     app.logger.info(f"Consumed message: {data} for {topic}")
     try: 
         orchestrator.process_step(topic, saga_id)
+        if topic == 'stock_details_success' or topic == 'stock_details_failure':
+            retries = 0
+            while retries < MAX_RETRIES:
+                try:
+                    val = ProcessedStock(saga_id=saga_id)
+                    db.session.add(val)
+                    db.session.commit()
+                    break
+                except OperationalError:
+                    db.session.rollback()
+                    retries += 1
+            else:
+                app.logger.error(f"Failed to change order state for processed payment {saga_id}")
+                return
+        else:
+            retries = 0
+            while retries < MAX_RETRIES:
+                try:
+                    val = ProcessedPayment(saga_id=saga_id)
+                    db.session.add(val)
+                    db.session.commit()
+                    break
+                except OperationalError:
+                    db.session.rollback()
+                    retries += 1
+            else:
+                app.logger.error(f"Failed to change order state for processed payment {saga_id}")
+                return
     except Exception as e:
         app.logger.error(f"Error in getting order state: {e} for data: {data}, topic: {topic}")
         return

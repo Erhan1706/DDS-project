@@ -9,7 +9,8 @@ RUN pip install -r requirements.txt
 
 COPY . .
 RUN chmod +x ./wait-for-kafka.sh
+RUN chmod +x ./start-for-replica-container.sh
 
 EXPOSE 5000 5678
 
-CMD ["bash", "./wait-for-kafka.sh"]
+#CMD ["bash", "./wait-for-kafka.sh"]
