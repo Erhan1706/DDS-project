@@ -7,8 +7,9 @@ from orchestrator import Orchestrator, Step
 
 
 producer = KafkaProducer(
-    bootstrap_servers='kafka:9092',
-    value_serializer=lambda v: json.dumps(v).encode('utf-8')
+    bootstrap_servers=['kafka-1:9092', 'kafka-2:9092'],
+    value_serializer=lambda v: json.dumps(v).encode('utf-8'),
+    acks=1 
 )
 
 def send_stock_rollback(data: dict):
@@ -42,7 +43,7 @@ def start_stock_listener(app):
             'stock_details_success',
             'stock_details_failure',
             group_id='order_stock_listener',
-            bootstrap_servers='kafka:9092',
+            bootstrap_servers=['kafka-1:9092', 'kafka-2:9092'],
             auto_offset_reset='latest',
             value_deserializer=lambda x: json.loads(x.decode('utf-8'))
         )
@@ -67,7 +68,7 @@ def start_payment_listener(app):
             'payment_details_success',
             'payment_details_failure',
             group_id='order_payment_listener',
-            bootstrap_servers='kafka:9092',
+            bootstrap_servers=['kafka-1:9092', 'kafka-2:9092'],
             auto_offset_reset='latest',
             value_deserializer=lambda x: json.loads(x.decode('utf-8'))
         )
