@@ -68,7 +68,9 @@ class Orchestrator():
             except OperationalError:
                 db.session.rollback()
                 retries += 1
-
+        else:
+            app.logger.error(f"Failed to change order state to pending {saga_id}, order: {context['order_id']}")
+            return abort(400, DB_ERROR_STR)
         self.steps[0].run(context)
         self.pending_events[saga_id] = event
 
@@ -88,7 +90,7 @@ class Orchestrator():
             retries = 0
             while retries < MAX_RETRIES:
                 try:
-                    orderStatus = OrderState.query.filter_by(saga_id=saga_id).first()
+                    orderStatus = OrderState.query.get(saga_id)
                     orderStatus.state = "COMPLETED"
                     db.session.add(orderStatus)
                     db.session.commit()
@@ -110,11 +112,23 @@ class Orchestrator():
             #    self.finishing_event.run({"saga_id": saga_id})                
 
     def compensate(self, saga_id: str):
+        saga = self.get_saga(saga_id)
+        current_step: int = saga["current_step"]
+        # Revert all steps
+        current_step -= 1
+        while current_step >= 0:
+            try:
+              self.steps[current_step].revert(saga["context"])
+              current_step -= 1
+            except Exception as e:
+                app.logger.error(f"Compensation error in {self.steps[current_step].name}: {e}")
+
         retries = 0
         while retries < MAX_RETRIES:
             try:
-                orderStatus = OrderState.query.filter_by(saga_id=saga_id).first()
+                orderStatus = OrderState.query.get(saga_id)
                 if orderStatus is None:
+                    app.logger.error(f"Failed to find order status {saga_id}")
                     return abort(400, f"Order: {saga_id} not found!")
                 orderStatus.state = "FAILED"
                 db.session.add(orderStatus)
@@ -126,16 +140,6 @@ class Orchestrator():
         else:
             app.logger.error(f"Failed to change order state to failed {saga_id}")
             return abort(400, DB_ERROR_STR)
-        saga = self.get_saga(saga_id)
-        current_step: int = saga["current_step"]
-        # Revert all steps
-        current_step -= 1
-        while current_step >= 0:
-            try:
-              self.steps[current_step].revert(saga["context"])
-              current_step -= 1
-            except Exception as e:
-                app.logger.error(f"Compensation error in {self.steps[current_step].name}: {e}")
         redis_db.publish(f"event_finished: {saga_id}", json.dumps({"saga_id": saga_id}))
 
     def finish_event(self, saga_id: str):
