@@ -92,7 +92,9 @@ class Orchestrator():
                     db.session.rollback()
                     retries += 1
             else:
-                current_step = 2
+                saga = self.get_saga(saga_id)
+                saga["current_step"] = 2
+                self.add_saga(saga_id, saga)
                 self.compensate(saga_id)
                 app.logger.error(f"Failed to change order state to completed {saga_id}")
                 return abort(400, DB_ERROR_STR)
