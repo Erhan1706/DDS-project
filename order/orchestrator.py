@@ -57,12 +57,16 @@ class Orchestrator():
             }
         })
         # Put current order in PENDING state
-        orderStatus: OrderState = OrderState(saga_id=saga_id, order_id=context["order_id"], state="PENDING")
-        try: 
-            db.session.add(orderStatus)
-            db.session.commit()
-        except Exception:
-            db.session.rollback()
+        retries = 0
+        while retries < MAX_RETRIES:
+            try:
+                orderStatus: OrderState = OrderState(saga_id=saga_id, order_id=context["order_id"], state="PENDING")
+                db.session.add(orderStatus)
+                db.session.commit()
+            except Exception as e:
+                app.logger.error(f"{retries} retry saving order state for {saga_id}")
+                db.session.rollback()
+                retries += 1
 
         self.steps[0].run(context)
         self.pending_events[saga_id] = event
