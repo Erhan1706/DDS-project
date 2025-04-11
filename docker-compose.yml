@@ -2,8 +2,14 @@ version: "3.9"
 
 #docker swarm init
 #docker compose build
-#docker stack deploy -c docker-compose.yml mystack #i did apply
+#docker stack deploy -c docker-compose.yml mystack
 ##docker stack rm mystack #to stop services
+
+x-restart-policy: &default-restart-policy
+  condition: any
+  delay: 60s
+  max_attempts: 5
+  window: 120s
 
 services:
 
@@ -20,6 +26,8 @@ services:
     ports:
       - "8000:80"
     deploy:
+      restart_policy:
+        <<: *default-restart-policy
       replicas: 1
       placement:
         constraints: [node.role == manager]
@@ -27,6 +35,7 @@ services:
   order-service:
     build: ./order
     image: order:latest
+    command: bash ./wait-for-kafka.sh
     environment:
       - GATEWAY_URL=http://gateway:80
     env_file:
@@ -37,9 +46,9 @@ services:
     networks:
       - app_network
     deploy:
-      replicas: 2
       restart_policy:
-        condition: on-failure
+        <<: *default-restart-policy
+      replicas: 4
       update_config:
         parallelism: 1
         delay: 5s
@@ -76,6 +85,10 @@ services:
     command: redis-server --requirepass redis --maxmemory 512mb
     networks:
       - app_network
+    deploy:
+      restart_policy:
+        <<: *default-restart-policy
+      replicas: 1
 
   stock-service:
     build: ./stock
@@ -88,7 +101,9 @@ services:
     networks:
       - app_network
     deploy:
-      replicas: 2
+      restart_policy:
+        <<: *default-restart-policy
+      replicas: 4
     volumes:
       - ./stock/app.py:/home/flask-app/app.py
 
@@ -103,7 +118,9 @@ services:
     networks:
       - app_network
     deploy:
-      replicas: 2
+      restart_policy:
+        <<: *default-restart-policy
+      replicas: 4
     volumes:
       - ./payment/app.py:/home/flask-app/app.py
 
@@ -117,6 +134,10 @@ services:
       - POSTGRES_PASSWORD=postgres
     networks:
       - app_network
+    deploy:
+      restart_policy:
+        <<: *default-restart-policy
+      replicas: 1
 
   stock-postgres:
     image: postgres:15.2
@@ -128,6 +149,10 @@ services:
       - POSTGRES_PASSWORD=postgres
     networks:
       - app_network
+    deploy:
+      restart_policy:
+        <<: *default-restart-policy
+      replicas: 1
 
   payment-postgres:
     image: postgres:15.2
@@ -139,6 +164,10 @@ services:
       - POSTGRES_PASSWORD=postgres
     networks:
       - app_network
+    deploy:
+      restart_policy:
+        <<: *default-restart-policy
+      replicas: 1
 
   pgadmin:
     container_name: pgadmin4_container
@@ -156,6 +185,8 @@ services:
     ports:
       - "5050:80"
     deploy:
+      restart_policy:
+        <<: *default-restart-policy
       replicas: 1
       placement:
         constraints: [node.role == manager]
@@ -166,6 +197,10 @@ services:
       - ZOOKEEPER_CLIENT_PORT=2181
     networks:
       - app_network
+    deploy:
+      restart_policy:
+        <<: *default-restart-policy
+      replicas: 1
 
   kafka:
     image: confluentinc/cp-kafka:7.0.0
@@ -177,10 +212,15 @@ services:
       - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:9093
       - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
       - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+      - KAFKA_NUM_PARTITIONS=4
     ports:
       - "9093:9093"
     networks:
       - app_network
+    deploy:
+      restart_policy:
+        <<: *default-restart-policy
+      replicas: 1
 
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
@@ -195,6 +235,8 @@ services:
     ports:
       - "8080:8080"
     deploy:
+      restart_policy:
+        <<: *default-restart-policy
       replicas: 1
       placement:
         constraints: [node.role == manager]
