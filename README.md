@@ -3,6 +3,24 @@
 Basic project structure with Python's Flask and Redis. 
 **You are free to use any web framework in any language and any database you like for this project.**
 
+### Architecture
+
+#### Transaction Protocol & Database
+The system uses orchestration-based SAGAs pattern and Kafka message broker.  Kafka makes sure that no events are lost during communication between microservices and helps avoiding potential inconsistencies. The communication between the microservices is event-driven, which shows performance benefits compared to using REST APIs.
+The communication with the client stays synchronous. The initial service (order-service) starts the SAGAs protocol and waits for it to complete before returning the result back to user. The system is based on PostgreSQL, because it provides consistency, fault tolerance, and transaction management.
+
+#### System Design
+The diagram below illustrates the message flow between services using Kafka topics:
+
+TODO: insert diagram
+
+To ensure data consistency and prevent concurrency issues, we applied optimistic locking:
+* Stock Service: Ensures correct stock updates when handling both stock events, especially preventing negative stock and inconsistencies.
+* Payment Service: Ensures transactions are processed exactly once, preventing duplicates.
+Optimistic locking detects conflicts using a version number. If another transaction modifies the data, the update fails, requiring a retry with the latest version.
+
+
+
 ### Project structure
 
 * `env`
