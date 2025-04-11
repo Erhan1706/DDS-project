@@ -2,7 +2,7 @@
 set -e 
 
 # Wait for kafka-1
-until nc -z kafka-1 9092; do
+until nc -z kafka-1 9091; do
   echo "Waiting for kafka-1 to be ready..."
   sleep 1
 done

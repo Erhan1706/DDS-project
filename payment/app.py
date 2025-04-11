@@ -38,7 +38,7 @@ def close_db_connection():
 atexit.register(close_db_connection)
 
 producer = KafkaProducer(
-    bootstrap_servers=['kafka-1:9092', 'kafka-2:9092'],
+    bootstrap_servers=['kafka-1:9091', 'kafka-2:9092'],
     value_serializer=lambda v: json.dumps(v).encode('utf-8'), 
     acks='all' 
 )
@@ -46,7 +46,7 @@ producer = KafkaProducer(
 def start_payment_action_consumer():
     consumer = KafkaConsumer(
         'verify_payment_details',
-        bootstrap_servers=['kafka-1:9092', 'kafka-2:9092'],
+        bootstrap_servers=['kafka-1:9091', 'kafka-2:9092'],
         auto_offset_reset='latest',
         value_deserializer=lambda x: json.loads(x.decode('utf-8'))
     )
@@ -65,7 +65,7 @@ def start_payment_action_consumer():
 def start_payment_compensation_consumer():
     consumer = KafkaConsumer(
         'compensate_payment_details',
-        bootstrap_servers=['kafka-1:9092', 'kafka-2:9092'],
+        bootstrap_servers=['kafka-1:9091', 'kafka-2:9092'],
         auto_offset_reset='latest',
         value_deserializer=lambda x: json.loads(x.decode('utf-8'))
     )
