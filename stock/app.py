@@ -37,15 +37,19 @@ class StockValue(Struct):
 
 
 producer = KafkaProducer(
-    bootstrap_servers='kafka:9092',
-    value_serializer=lambda v: json.dumps(v).encode('utf-8')
+    # bootstrap_servers='kafka:9092',
+    bootstrap_servers=['kafka-1:9091', 'kafka-2:9092', 'kafka-3:9093'],
+    value_serializer=lambda v: json.dumps(v).encode('utf-8'),
+    retries=5,
+    acks='all'
 )
 
 def start_stock_action_consumer():
     consumer = KafkaConsumer(
         'verify_stock_details',
         group_id='stock_action_listener',
-        bootstrap_servers='kafka:9092',
+        # bootstrap_servers='kafka:9092',
+        bootstrap_servers=['kafka-1:9091', 'kafka-2:9092', 'kafka-3:9093'],
         auto_offset_reset='latest',
         value_deserializer=lambda x: json.loads(x.decode('utf-8'))
     )
@@ -114,7 +118,8 @@ def start_stock_compensation_consumer():
     consumer = KafkaConsumer(
         'compensate_stock_details',
         group_id='stock_compensation_listener',
-        bootstrap_servers='kafka:9092',
+        # bootstrap_servers='kafka:9092',
+        bootstrap_servers=['kafka-1:9091', 'kafka-2:9092', 'kafka-3:9093'],
         auto_offset_reset='latest',
         value_deserializer=lambda x: json.loads(x.decode('utf-8'))
     )
