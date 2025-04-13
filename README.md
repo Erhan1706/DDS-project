@@ -9,7 +9,7 @@ docker stack deploy -c docker-compose.yml mystack
 docker stack rm mystack #to stop services
 ```
 
-<u> Note:</u> ocasionally in some operating systems (e.g. Linux), docker swarm sometimes does not start properly, giving name resolution errors. Sometimes, just retrying again fixes this, but if there's consistents issue with the containers, or the consistency tests are not initially passing, please use the **compose-version** branch. This branch only uses docker compose however, it has more limited functionality in terms of replication of the payment and stock services compared to this version.
+**Note:** ocasionally in some operating systems (e.g. Linux), docker swarm sometimes does not start properly, giving name resolution errors. Sometimes, just retrying again fixes this, but if there's consistent issues with the containers, or the consistency tests are not initially passing, please use the **compose-version** branch. This branch only uses docker compose, however it has more limited functionality in terms of replication of the payment and stock services compared to this version.
 
 ## Architecture
 

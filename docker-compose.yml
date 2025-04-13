@@ -192,6 +192,7 @@ services:
       retries: 5
     volumes:
       - ./pgpool/pgpool.conf:/config/myconf.conf
+      - ./pgpool/init-order:/docker-entrypoint-initdb.d
     depends_on:
       - order-pg-0
       - order-pg-1
@@ -271,6 +272,7 @@ services:
       retries: 5
     volumes:
       - ./pgpool/pgpool.conf:/config/myconf.conf
+      - ./pgpool/init-stock:/docker-entrypoint-initdb.d
     depends_on:
       - stock-pg-0
       - stock-pg-1
@@ -346,6 +348,7 @@ services:
       retries: 5
     volumes:
       - ./pgpool/pgpool.conf:/config/myconf.conf
+      - ./pgpool/init-payment:/docker-entrypoint-initdb.d
     depends_on:
       - payment-pg-0
       - payment-pg-1
