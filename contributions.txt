@@ -1,4 +1,4 @@
-Dorian:
+Dorian: Configured postgres for all services, implemented saga logic, implemented database replication  
 Ivan:
 Jamila: 
 Roxana:

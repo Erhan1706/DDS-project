@@ -8,7 +8,7 @@ version: "3.9"
 x-restart-policy: &default-restart-policy
   condition: on-failure
   delay: 60s
-  max_attempts: 5
+  max_attempts: 10
   window: 120s
 
 services:
