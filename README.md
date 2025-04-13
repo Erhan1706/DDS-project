@@ -50,9 +50,13 @@ To handle this our application logic captures this exception in the relevant tra
 Additionally, during checkouts, some local state must be maintained for coordinating SAGA transactions. However, with multiple workers, there is no guarantees that the same worker which handled the initial checkout request is the one to receive the last saga event. To counteract this we also use Redis as a fast in-memory database to store this local state and make it so that its shared between every worker. Furthermore, to ensure the communication with the client stays synchronous and the original worker can still return the final result to the client, we use [redis pubsub](https://redis.io/docs/latest/develop/interact/pubsub/), where the initial worker subscribes a channel tied to the order ID, and any worker that completes the SAGA publishes to this channel.
 
 #### System Design
-The diagram below illustrates the message flow between services using Kafka topics:
+Here is the diagram of system general architecture. We also added multiple administrative services for the ease of application operation (Kafka-UI, pgAdmin)
 
-TODO: insert diagram
+![system_design](images/system_design.svg)
+
+The diagram below illustrates the message flow between services using Kafka topics during the order checkout:
+
+![event_flow](images/event_flow.png)
 
   
 ## Replication
@@ -65,5 +69,11 @@ For PostgresSQL replication we use [pgpool](https://www.pgpool.net/mediawiki/ind
 - Replication + high-availability of order-service. Order service is replicated and killing one of the containers, does not stop the execution of the orders as the requests will be redirected to the replica. Our implementation also maintains consistency in case of failure. 
 
 - Replication + high-availability of stock-service and payment-service. Stopping these containers will not stop the execution of the orders as the requests will be redirected to the replica. 
+
+#### Request Retry Mechanism
+The requests are retried in case of order service failure. API gateway sends the request to another Order service replica to make sure the request will be processed consistently. 
+The flow of request retrial is shown on the schema below:
+
+![retry_diagram](images/retry_diagram.png)
 
 **Stopping any other container will most likely break the application. This includes: kafka, zookeper and redis.**
