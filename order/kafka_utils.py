@@ -51,9 +51,9 @@ def start_stock_listener(app):
             value_deserializer=lambda x: json.loads(x.decode('utf-8'))
         )
         for message in consumer:
-            handle_stock_message(message.value, message.topic)
+            handle_message(message.value, message.topic)
 
-def handle_stock_message(data: dict, topic: str):
+def handle_message(data: dict, topic: str):
     saga_id = data.get("saga_id")
     if topic == 'stock_details_success' or topic == 'stock_details_failure':
         with db.session.begin():
@@ -116,7 +116,7 @@ def start_payment_listener(app):
             value_deserializer=lambda x: json.loads(x.decode('utf-8'))
         )
         for message in consumer:
-            handle_stock_message(message.value, message.topic)
+            handle_message(message.value, message.topic)
 
 stock_step = Step("verify_stock", send_stock_event, send_stock_rollback)
 payment_step = Step("verify_payment", send_payment_event, send_payment_rollback)

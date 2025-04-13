@@ -9,6 +9,7 @@ from sqlalchemy.exc import OperationalError
 from models import OrderState
 from __init__ import db, DB_ERROR_STR, redis_db, pubsub
 from flask import abort, current_app as app
+from time import sleep
 
 MAX_RETRIES = 10
 
@@ -57,15 +58,15 @@ class Orchestrator():
             }
         })
         # Put current order in PENDING state
-        orderStatus: OrderState = OrderState(saga_id=saga_id, order_id=context["order_id"], state="PENDING")
-
         retries = 0
         while retries < MAX_RETRIES:
             try:
+                orderStatus: OrderState = OrderState(saga_id=saga_id, order_id=context["order_id"], state="PENDING")
                 db.session.add(orderStatus)
                 db.session.commit()
                 break
             except OperationalError:
+                app.logger.info(f"Retrying to add order {saga_id} to DB, current attempt: {retries}")
                 db.session.rollback()
                 retries += 1
         else:
@@ -98,6 +99,7 @@ class Orchestrator():
                 except OperationalError:
                     db.session.rollback()
                     retries += 1
+                    sleep(0.1 * retries)
             else:
                 saga = self.get_saga(saga_id)
                 saga["current_step"] = 2

@@ -38,10 +38,11 @@ def get_order_state(order_id: str) -> OrderState | None:
 
 @order_bp.post('/create/<user_id>')
 def create_order(user_id: str):
-    order = Order(user_id=user_id)
     retries = 0
+    db.session.rollback()
     while retries < MAX_RETRIES:
         try:
+            order = Order(user_id=user_id)
             db.session.add(order)
             db.session.commit()
             break

@@ -24,9 +24,16 @@ MAX_RETRIES = 10
 
 app = Flask("payment-service")
 
-app.config["SQLALCHEMY_DATABASE_URI"] = "postgresql://postgres:postgres@payment-postgres:5432/payment_db"
+app.config["SQLALCHEMY_DATABASE_URI"] = "postgresql://postgres:postgres@payment-pgpool:5432/payment_db"
 app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
-    "isolation_level": "SERIALIZABLE"  # Strongest isolation level for postgres
+    "isolation_level": "SERIALIZABLE",  # Strongest isolation level for postgres
+    "pool_pre_ping": True,
+    "connect_args":{
+        "keepalives": 1,
+        "keepalives_idle": 20,
+        "keepalives_interval": 10,
+        "keepalives_count": 5,
+    }
 }
 
 db = SQLAlchemy(app)

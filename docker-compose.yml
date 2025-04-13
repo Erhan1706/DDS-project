@@ -1,4 +1,3 @@
-version: "3"
 services:
 
   gateway:
@@ -26,7 +25,7 @@ services:
     env_file:
       - env/order_redis.env
     depends_on:
-      - order-postgres
+      - order-pgpool
       - kafka
     networks:
       - app_network
@@ -48,7 +47,7 @@ services:
     env_file:
       - env/order_redis.env
     depends_on:
-      - order-postgres
+      - order-pgpool
       - kafka
     networks:
       - app_network
@@ -70,18 +69,12 @@ services:
     env_file:
       - env/stock_redis.env
     depends_on:
-      - stock-postgres
+      - stock-pgpool
       - kafka
     networks:
       - app_network
     volumes:
       - ./stock/app.py:/home/flask-app/app.py
-
-  #stock-db:
-  #  image: redis:7.2-bookworm
-  #  command: redis-server --requirepass redis --maxmemory 512mb
-  #  networks:
-  #    - app_network
 
   payment-service:
     build: ./payment
@@ -89,55 +82,235 @@ services:
     env_file:
       - env/payment_redis.env
     depends_on:
-      - payment-postgres
+      - payment-pgpool
       - kafka
     networks:
       - app_network
     volumes:
       - ./payment/app.py:/home/flask-app/app.py
 
-  #payment-db:
-  #  image: redis:7.2-bookworm
-  #  command: redis-server --requirepass redis --maxmemory 512mb
-  #  networks:
-  #    - app_network
 
-  order-postgres:
-    image: postgres:15.2
-    user: postgres
-    environment:
-    - "POSTGRES_DB=order-db"
-    - "POSTGRES_HOST_AUTH_METHOD=trust"
-    - "POSTGRES_USER=postgres"
-    - "POSTGRES_PASSWORD=postgres"
+  order-pg-0:
+    image: docker.io/bitnami/postgresql-repmgr:latest
     ports:
-      - "5431:5432"
+      - "5434:5432"
+    volumes:
+      - order_pg0_data:/bitnami/postgresql
+    environment:
+      - POSTGRESQL_POSTGRES_PASSWORD=postgres
+      - POSTGRESQL_USERNAME=customuser
+      - POSTGRESQL_PASSWORD=custompassword
+      - POSTGRESQL_DATABASE=order-db
+      - POSTGRESQL_NUM_SYNCHRONOUS_REPLICAS=1
+      - REPMGR_PRIMARY_HOST=order-pg-0
+      - REPMGR_PARTNER_NODES=order-pg-0,order-pg-1
+      - REPMGR_NODE_NAME=order-pg-0
+      - REPMGR_NODE_NETWORK_NAME=order-pg-0
+      - REPMGR_USERNAME=repmgr
+      - REPMGR_PASSWORD=repmgrpassword
+    networks:
+      - app_network
+    
+  order-pg-1:
+    image: docker.io/bitnami/postgresql-repmgr:latest
+    ports:
+      - "5435:5432"
+    volumes:
+      - order_pg1_data:/bitnami/postgresql
+    environment:
+      - POSTGRESQL_POSTGRES_PASSWORD=postgres
+      - POSTGRESQL_USERNAME=customuser
+      - POSTGRESQL_PASSWORD=custompassword
+      - POSTGRESQL_DATABASE=order-db
+      - POSTGRESQL_NUM_SYNCHRONOUS_REPLICAS=1
+      - REPMGR_PRIMARY_HOST=order-pg-0
+      - REPMGR_PARTNER_NODES=order-pg-0,order-pg-1
+      - REPMGR_NODE_NAME=order-pg-1
+      - REPMGR_NODE_NETWORK_NAME=order-pg-1
+      - REPMGR_USERNAME=repmgr
+      - REPMGR_PASSWORD=repmgrpassword
+    networks:
+      - app_network
+    depends_on:
+      - order-pg-0
+
+  order-pgpool:
+    image: docker.io/bitnami/pgpool:4
+    ports:
+      - 5436:5432
+    environment:
+      - PGPOOL_BACKEND_NODES=0:order-pg-0:5432,1:order-pg-1:5432
+      - PGPOOL_SR_CHECK_USER=repmgr
+      - PGPOOL_SR_CHECK_PASSWORD=repmgrpassword
+      - PGPOOL_ENABLE_LDAP=no
+      - PGPOOL_POSTGRES_USERNAME=postgres
+      - PGPOOL_POSTGRES_PASSWORD=postgres
+      - PGPOOL_ADMIN_USERNAME=admin
+      - PGPOOL_ADMIN_PASSWORD=adminpassword
+      - PGPOOL_POSTGRES_CUSTOM_USERS=customuser
+      - PGPOOL_POSTGRES_CUSTOM_PASSWORDS=custompassword
+      - PGPOOL_ENABLE_LOAD_BALANCING=yes
+      - PGPOOL_USER_CONF_FILE=/config/myconf.conf
+    healthcheck:
+      test: ["CMD", "/opt/bitnami/scripts/pgpool/healthcheck.sh"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - ./pgpool/pgpool.conf:/config/myconf.conf
+    depends_on:
+      - order-pg-0
+      - order-pg-1
     networks:
       - app_network
 
-  stock-postgres:
-    image: postgres:15.2
-    user: postgres
-    environment:
-    - "POSTGRES_DB=stock_db"
-    - "POSTGRES_HOST_AUTH_METHOD=trust"
-    - "POSTGRES_USER=postgres"
-    - "POSTGRES_PASSWORD=postgres"
+  ####
+  stock-pg-0:
+    image: docker.io/bitnami/postgresql-repmgr:latest
     ports:
-      - "5432:5432"
+      - "5437:5432"
+    volumes:
+      - stock_pg0_data:/bitnami/postgresql
+    environment:
+      - POSTGRESQL_POSTGRES_PASSWORD=postgres
+      - POSTGRESQL_USERNAME=customuser
+      - POSTGRESQL_PASSWORD=custompassword
+      - POSTGRESQL_DATABASE=stock_db
+      - POSTGRESQL_NUM_SYNCHRONOUS_REPLICAS=1
+      - REPMGR_PRIMARY_HOST=stock-pg-0
+      - REPMGR_PARTNER_NODES=stock-pg-0,stock-pg-1
+      - REPMGR_NODE_NAME=stock-pg-0
+      - REPMGR_NODE_NETWORK_NAME=stock-pg-0
+      - REPMGR_USERNAME=repmgr
+      - REPMGR_PASSWORD=repmgrpassword
+    networks:
+      - app_network
+    
+  stock-pg-1:
+    image: docker.io/bitnami/postgresql-repmgr:latest
+    ports:
+      - "5438:5432"
+    volumes:
+      - stock_pg1_data:/bitnami/postgresql
+    environment:
+      - POSTGRESQL_POSTGRES_PASSWORD=postgres
+      - POSTGRESQL_USERNAME=customuser
+      - POSTGRESQL_PASSWORD=custompassword
+      - POSTGRESQL_DATABASE=stock_db
+      - POSTGRESQL_NUM_SYNCHRONOUS_REPLICAS=1
+      - REPMGR_PRIMARY_HOST=stock-pg-0
+      - REPMGR_PARTNER_NODES=stock-pg-0,stock-pg-1
+      - REPMGR_NODE_NAME=stock-pg-1
+      - REPMGR_NODE_NETWORK_NAME=stock-pg-1
+      - REPMGR_USERNAME=repmgr
+      - REPMGR_PASSWORD=repmgrpassword
+    networks:
+      - app_network
+    depends_on:
+      - stock-pg-0
+
+  stock-pgpool:
+    image: docker.io/bitnami/pgpool:4
+    ports:
+      - 5439:5432
+    environment:
+      - PGPOOL_BACKEND_NODES=0:stock-pg-0:5432,1:stock-pg-1:5432
+      - PGPOOL_SR_CHECK_USER=repmgr
+      - PGPOOL_SR_CHECK_PASSWORD=repmgrpassword
+      - PGPOOL_ENABLE_LDAP=no
+      - PGPOOL_POSTGRES_USERNAME=postgres
+      - PGPOOL_POSTGRES_PASSWORD=postgres
+      - PGPOOL_ADMIN_USERNAME=admin
+      - PGPOOL_ADMIN_PASSWORD=adminpassword
+      - PGPOOL_POSTGRES_CUSTOM_USERS=customuser
+      - PGPOOL_POSTGRES_CUSTOM_PASSWORDS=custompassword
+      - PGPOOL_ENABLE_LOAD_BALANCING=yes
+      - PGPOOL_USER_CONF_FILE=/config/myconf.conf
+    healthcheck:
+      test: ["CMD", "/opt/bitnami/scripts/pgpool/healthcheck.sh"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - ./pgpool/pgpool.conf:/config/myconf.conf
+    depends_on:
+      - stock-pg-0
+      - stock-pg-1
     networks:
       - app_network
 
-  payment-postgres:
-    image: postgres:15.2
-    user: postgres
-    environment:
-    - "POSTGRES_DB=payment_db"
-    - "POSTGRES_HOST_AUTH_METHOD=trust"
-    - "POSTGRES_USER=postgres"
-    - "POSTGRES_PASSWORD=postgres"
+  ####
+  payment-pg-0:
+    image: docker.io/bitnami/postgresql-repmgr:latest
     ports:
-      - "5433:5432"
+      - "5440:5432"
+    volumes:
+      - payment_pg0_data:/bitnami/postgresql
+    environment:
+      - POSTGRESQL_POSTGRES_PASSWORD=postgres
+      - POSTGRESQL_USERNAME=customuser
+      - POSTGRESQL_PASSWORD=custompassword
+      - POSTGRESQL_DATABASE=payment_db
+      - POSTGRESQL_NUM_SYNCHRONOUS_REPLICAS=1
+      - REPMGR_PRIMARY_HOST=payment-pg-0
+      - REPMGR_PARTNER_NODES=payment-pg-0,payment-pg-1
+      - REPMGR_NODE_NAME=payment-pg-0
+      - REPMGR_NODE_NETWORK_NAME=payment-pg-0
+      - REPMGR_USERNAME=repmgr
+      - REPMGR_PASSWORD=repmgrpassword
+    networks:
+      - app_network
+    
+  payment-pg-1:
+    image: docker.io/bitnami/postgresql-repmgr:latest
+    ports:
+      - "5441:5432"
+    volumes:
+      - payment_pg1_data:/bitnami/postgresql
+    environment:
+      - POSTGRESQL_POSTGRES_PASSWORD=postgres
+      - POSTGRESQL_USERNAME=customuser
+      - POSTGRESQL_PASSWORD=custompassword
+      - POSTGRESQL_DATABASE=payment_db
+      - POSTGRESQL_NUM_SYNCHRONOUS_REPLICAS=1
+      - REPMGR_PRIMARY_HOST=payment-pg-0
+      - REPMGR_PARTNER_NODES=payment-pg-0,payment-pg-1
+      - REPMGR_NODE_NAME=payment-pg-1
+      - REPMGR_NODE_NETWORK_NAME=payment-pg-1
+      - REPMGR_USERNAME=repmgr
+      - REPMGR_PASSWORD=repmgrpassword
+    networks:
+      - app_network
+    depends_on:
+      - payment-pg-0
+
+  payment-pgpool:
+    image: docker.io/bitnami/pgpool:4
+    ports:
+      - 5442:5432
+    environment:
+      - PGPOOL_BACKEND_NODES=0:payment-pg-0:5432,1:payment-pg-1:5432
+      - PGPOOL_SR_CHECK_USER=repmgr
+      - PGPOOL_SR_CHECK_PASSWORD=repmgrpassword
+      - PGPOOL_ENABLE_LDAP=no
+      - PGPOOL_POSTGRES_USERNAME=postgres
+      - PGPOOL_POSTGRES_PASSWORD=postgres
+      - PGPOOL_ADMIN_USERNAME=admin
+      - PGPOOL_ADMIN_PASSWORD=adminpassword
+      - PGPOOL_POSTGRES_CUSTOM_USERS=customuser
+      - PGPOOL_POSTGRES_CUSTOM_PASSWORDS=custompassword
+      - PGPOOL_ENABLE_LOAD_BALANCING=yes
+      - PGPOOL_USER_CONF_FILE=/config/myconf.conf
+    healthcheck:
+      test: ["CMD", "/opt/bitnami/scripts/pgpool/healthcheck.sh"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - ./pgpool/pgpool.conf:/config/myconf.conf
+    depends_on:
+      - payment-pg-0
+      - payment-pg-1
     networks:
       - app_network
 
@@ -157,7 +330,6 @@ services:
       - pgadmin:/var/lib/pgadmin
       - ./servers.json:/pgadmin4/servers.json:ro
       - ./config_local.py:/pgadmin4/config_local.py:ro
-
 
   zookeeper:
     image: confluentinc/cp-zookeeper:7.0.0
@@ -202,3 +374,9 @@ networks:
 
 volumes:
   pgadmin:
+  order_pg0_data:
+  order_pg1_data:
+  stock_pg0_data:
+  stock_pg1_data:
+  payment_pg0_data:
+  payment_pg1_data:
