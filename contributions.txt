@@ -1,4 +1,4 @@
 Dorian: Configured postgres for all services, implemented saga logic, implemented database replication  
 Ivan:
 Jamila: Helped to design the architecture, made diagrams, worked on the initial report, and helped to apply some of those design changes in the services. I added Kafka UI, set up Docker Swarm for service replication, debugged issues with my teammates, improved performance by fixing partitioning and testing replication, and also tried to set up Kafka replication, but it didn’t work as expected and can be found in the branches.
-Roxana:
+Roxana: Helped to design the architecture, solved some errors regarding databases, worked on Kafka replication.
