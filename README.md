@@ -1,11 +1,15 @@
-# Web-scale Data Management Project Template
-Technologies used:
+# Distributed Data Systems Project 
 
-- Flask
-- Redis
-- PostgresSQL
-- Kafka
-- postgres-repmgr & pgPool
+The project uses docker swarm, to start the application do: 
+
+```bash
+docker swarm init
+docker compose build
+docker stack deploy -c docker-compose.yml mystack
+docker stack rm mystack #to stop services
+```
+
+<u> Note:</u> ocasionally in some operating systems (e.g. Linux), docker swarm sometimes does not start properly, giving name resolution errors. Sometimes, just retrying again fixes this, but if there's consistents issue with the containers, or the consistency tests are not initially passing, please use the **compose-version** branch. This branch only uses docker compose however, it has more limited functionality in terms of replication of the payment and stock services compared to this version.
 
 ## Architecture
 
@@ -41,4 +45,6 @@ For PostgresSQL replication we use [pgpool](https://www.pgpool.net/mediawiki/ind
 #### Services Replication
 - Replication + high-availability of order-service. Order service is replicated and killing one of the containers, does not stop the execution of the orders as the requests will be redirected to the replica. Our implementation also maintains consistency in case of failure. 
 
+- Replication + high-availability of stock-service and payment-service. Stopping these containers will not stop the execution of the orders as the requests will be redirected to the replica. 
 
+**Stopping any other container will most likely break the application. This includes: kafka, zookeper and redis.**
