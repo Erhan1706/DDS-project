@@ -1,5 +1,7 @@
 # Distributed Data Systems Project 
 
+## Application start instructions
+
 The project uses docker swarm, to start the application do: 
 
 ```bash
@@ -8,6 +10,23 @@ docker compose build
 docker stack deploy -c docker-compose.yml mystack
 docker stack rm mystack #to stop services
 ```
+
+#### For Windows users:
+
+In case you see error similar to this when starting services:
+```
+./wait-for-kafka.sh: line 3: $'\r': command not found
+```
+Make sure the corresponding files are using Unix line separator (\n).
+List of files:
+- wait-for-services.sh
+- order/wait-for-kafka.sh
+- payment/wait-for-kafka.sh
+- stock/wait-for-kafka.sh
+- pgpool/init-order/wait-for-dbs.sh
+- pgpool/init-payment/wait-for-dbs.sh
+- pgpool/init-stock/wait-for-dbs.sh
+
 
 **Note:** ocasionally in some operating systems (e.g. Linux), docker swarm sometimes does not start properly, giving name resolution errors. Sometimes, just retrying again fixes this, but if there's consistent issues with the containers, or the consistency tests are not initially passing, please use the **compose-version** branch. This branch only uses docker compose, however it has more limited functionality in terms of replication of the payment and stock services compared to this version.
 
