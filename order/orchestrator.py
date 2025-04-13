@@ -107,11 +107,7 @@ class Orchestrator():
                 self.compensate(saga_id)
                 app.logger.error(f"Failed to change order state to completed {saga_id}")
                 return abort(400, DB_ERROR_STR)
-            redis_db.publish(f"event_finished: {saga_id}", json.dumps({"saga_id": saga_id}))
-            #if saga_id in self.pending_events:
-            #    self.pending_events[saga_id].set()
-            #else:
-            #    self.finishing_event.run({"saga_id": saga_id})                
+            redis_db.publish(f"event_finished: {saga_id}", json.dumps({"saga_id": saga_id}))               
 
     def compensate(self, saga_id: str):
         saga = self.get_saga(saga_id)

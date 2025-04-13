@@ -1,71 +1,44 @@
 # Web-scale Data Management Project Template
+Technologies used:
 
-Basic project structure with Python's Flask and Redis. 
-**You are free to use any web framework in any language and any database you like for this project.**
+- Flask
+- Redis
+- PostgresSQL
+- Kafka
+- postgres-repmgr & pgPool
 
-### Architecture
+## Architecture
 
-#### Transaction Protocol & Database
-The system uses orchestration-based SAGAs pattern and Kafka message broker.  Kafka makes sure that no events are lost during communication between microservices and helps avoiding potential inconsistencies. The communication between the microservices is event-driven, which shows performance benefits compared to using REST APIs.
-The communication with the client stays synchronous. The initial service (order-service) starts the SAGAs protocol and waits for it to complete before returning the result back to user. The system is based on PostgreSQL, because it provides consistency, fault tolerance, and transaction management.
+### Transaction Protocol
+The system uses orchestration-based SAGAs pattern to handle distributed transactions. The SAGA implementation is custom-coded (it can be found [here](order/orchestrator.py)), it does not rely on external libraries. No external orchestrator service is used, instead the order service doubles as the SAGA orchestrator, eliminating the need for a separate service and reducing communication overhead. The communication with the client stays synchronous. The initial service (order-service) starts the SAGAs protocol and waits for it to complete before returning the result back to user.
+
+We use kafka as a message broker. Kafka makes sure that no events are lost during communication between microservices and helps avoiding potential inconsistencies. The communication between the microservices is event-driven, which shows performance benefits compared to using REST APIs.
+
+### Database
+
+The system is based on PostgreSQL. All services use the ['SERIALIZABLE' isolation level](https://www.postgresql.org/docs/current/transaction-iso.html), the strictest isolation transaction level in Postgres. This ensures strong consistency, preventing stock or payment from being lost. Postgres implements this using [Serializable Snapshot Isolation](https://wiki.postgresql.org/wiki/SSI). In this algorithm no locking is applied, instead it monitors read/write dependencies among transactions, in case it detects a conflict it raises an error like:
+```
+ERROR:  could not serialize access due to read/write dependencies among transactions
+DETAIL:  Cancelled on identification as a pivot, during commit attempt.
+HINT:  The transaction might succeed if retried.
+```  
+To handle this our application logic captures this exception in the relevant transactions, and retries them up to a configured `MAX_RETRY` limit. Our aim was to improve performance by avoiding blocking operations such as locking. However, it is worth mentioning that this strategy might be less efficient in very high concurrency scenarios where a lot of transactions touch the same data, as in the worst case, most transaction will have to eventually retry multiple times.
+
+Additionally, during checkouts, some local state must be maintained for coordinating SAGA transactions. However, with multiple workers, there is no guarantees that the same worker which handled the initial checkout request is the one to receive the last saga event. To counteract this we also use Redis as a fast in-memory database to store this local state and make it so that its shared between every worker. Furthermore, to ensure the communication with the client stays synchronous and the original worker can still return the final result to the client, we use [redis pubsub](https://redis.io/docs/latest/develop/interact/pubsub/), where the initial worker subscribes a channel tied to the order ID, and any worker that completes the SAGA publishes to this channel.
 
 #### System Design
 The diagram below illustrates the message flow between services using Kafka topics:
 
 TODO: insert diagram
 
-To ensure data consistency and prevent concurrency issues, we applied optimistic locking:
-* Stock Service: Ensures correct stock updates when handling both stock events, especially preventing negative stock and inconsistencies.
-* Payment Service: Ensures transactions are processed exactly once, preventing duplicates.
-Optimistic locking detects conflicts using a version number. If another transaction modifies the data, the update fails, requiring a retry with the latest version.
+  
+## Replication
+#### Database Replication
+For PostgresSQL replication we use [pgpool](https://www.pgpool.net/mediawiki/index.php/Main_Page) and [repmgr](https://www.repmgr.org/). These tools allow for replication management and automatic failover of Postgres databases. The systes uses master-slave replication setup with synchronous replication between the replicas via write-ahead-logs.
+
+- Pgpool will also detect any database failures and perform failover, achieving high-availability in case any db container is killed.  Killing any database container will not stop the execution of the orders. Note: this failover usually takes a bit to execute (around 10-50 seconds). 
+
+#### Services Replication
+- Replication + high-availability of order-service. Order service is replicated and killing one of the containers, does not stop the execution of the orders as the requests will be redirected to the replica. Our implementation also maintains consistency in case of failure. 
 
 
-
-### Project structure
-
-* `env`
-    Folder containing the Redis env variables for the docker-compose deployment
-    
-* `helm-config` 
-   Helm chart values for Redis and ingress-nginx
-        
-* `k8s`
-    Folder containing the kubernetes deployments, apps and services for the ingress, order, payment and stock services.
-    
-* `order`
-    Folder containing the order application logic and dockerfile. 
-    
-* `payment`
-    Folder containing the payment application logic and dockerfile. 
-
-* `stock`
-    Folder containing the stock application logic and dockerfile. 
-
-* `test`
-    Folder containing some basic correctness tests for the entire system. (Feel free to enhance them)
-
-### Deployment types:
-
-#### docker-compose (local development)
-
-After coding the REST endpoint logic run `docker-compose up --build` in the base folder to test if your logic is correct
-(you can use the provided tests in the `\test` folder and change them as you wish). 
-
-***Requirements:*** You need to have docker and docker-compose installed on your machine. 
-
-K8s is also possible, but we do not require it as part of your submission. 
-
-#### minikube (local k8s cluster)
-
-This setup is for local k8s testing to see if your k8s config works before deploying to the cloud. 
-First deploy your database using helm by running the `deploy-charts-minicube.sh` file (in this example the DB is Redis 
-but you can find any database you want in https://artifacthub.io/ and adapt the script). Then adapt the k8s configuration files in the
-`\k8s` folder to mach your system and then run `kubectl apply -f .` in the k8s folder. 
-
-***Requirements:*** You need to have minikube (with ingress enabled) and helm installed on your machine.
-
-#### kubernetes cluster (managed k8s cluster in the cloud)
-
-Similarly to the `minikube` deployment but run the `deploy-charts-cluster.sh` in the helm step to also install an ingress to the cluster. 
-
-***Requirements:*** You need to have access to kubectl of a k8s cluster.

@@ -29,10 +29,6 @@ services:
       - kafka
     networks:
       - app_network
-    volumes:
-      - ./order/orchestrator.py:/home/flask-app/orchestrator.py # reload changes for development
-      - ./order/routes.py:/home/flask-app/routes.py
-      - ./order/kafka_utils.py:/home/flask-app/kafka_utils.py
     command: bash ./wait-for-kafka.sh
 
 
@@ -51,10 +47,6 @@ services:
       - kafka
     networks:
       - app_network
-    volumes:
-      - ./order/orchestrator.py:/home/flask-app/orchestrator.py
-      - ./order/routes.py:/home/flask-app/routes.py
-      - ./order/kafka_utils.py:/home/flask-app/kafka_utils.py
     command: bash ./start-for-replica-container.sh
 
   order-redis:
@@ -73,8 +65,6 @@ services:
       - kafka
     networks:
       - app_network
-    volumes:
-      - ./stock/app.py:/home/flask-app/app.py
 
   payment-service:
     build: ./payment
@@ -86,9 +76,6 @@ services:
       - kafka
     networks:
       - app_network
-    volumes:
-      - ./payment/app.py:/home/flask-app/app.py
-
 
   order-pg-0:
     image: docker.io/bitnami/postgresql-repmgr:latest
@@ -315,21 +302,21 @@ services:
       - app_network
 
   # pgAdmin (access with localhost:5050 in browser)
-  pgadmin:
-    container_name: pgadmin4_container
-    image: dpage/pgadmin4
-    environment:
-      PGADMIN_DEFAULT_EMAIL: admin@admin.com
-      PGADMIN_DEFAULT_PASSWORD: root
-      PGADMIN_CONFIG_SERVER_MODE: "False"
-    ports:
-      - "5050:80"
-    networks:
-      - app_network
-    volumes:
-      - pgadmin:/var/lib/pgadmin
-      - ./servers.json:/pgadmin4/servers.json:ro
-      - ./config_local.py:/pgadmin4/config_local.py:ro
+  #pgadmin:
+  #  container_name: pgadmin4_container
+  #  image: dpage/pgadmin4
+  #  environment:
+  #    PGADMIN_DEFAULT_EMAIL: admin@admin.com
+  #    PGADMIN_DEFAULT_PASSWORD: root
+  #    PGADMIN_CONFIG_SERVER_MODE: "False"
+  #  ports:
+  #    - "5050:80"
+  #  networks:
+  #    - app_network
+  #  volumes:
+  #    - pgadmin:/var/lib/pgadmin
+  #    - ./servers.json:/pgadmin4/servers.json:ro
+  #    - ./config_local.py:/pgadmin4/config_local.py:ro
 
   zookeeper:
     image: confluentinc/cp-zookeeper:7.0.0
@@ -355,18 +342,18 @@ services:
     networks:
       - app_network
 
-  kafka-ui:
-    image: provectuslabs/kafka-ui:latest
-    container_name: kafka-ui
-    depends_on:
-      - kafka
-    environment:
-      - KAFKA_CLUSTERS_0_NAME=local
-      - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:9092
-    ports:
-      - "8080:8080"
-    networks:
-      - app_network
+  #kafka-ui:
+  #  image: provectuslabs/kafka-ui:latest
+  #  container_name: kafka-ui
+  #  depends_on:
+  #    - kafka
+  #  environment:
+  #    - KAFKA_CLUSTERS_0_NAME=local
+  #    - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:9092
+  #  ports:
+  #    - "8080:8080"
+  #  networks:
+  #    - app_network
 
 networks:
   app_network:
